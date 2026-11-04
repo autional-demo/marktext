@@ -2,7 +2,11 @@ export interface Doc {
   id: string;
   title: string;
   content: string;
+  /** 服务端版本号；0 表示尚未同步过 */
+  rev: number;
   updatedAt: number;
+  /** 正文是否已从服务端拉取（列表接口只返回元数据） */
+  loaded?: boolean;
 }
 
 const NS = "marktext-web";
@@ -26,10 +30,10 @@ export const WELCOME_DOC = `# 欢迎使用 MarkText Web
 ## 开始
 
 1. 左侧新建文档，或导入本地 \`.md\` 文件
-2. 编辑内容会自动保存到本账号在本机的存储
+2. 编辑内容会自动保存到云端，换设备登录即可看到
 3. 右上角可导出 Markdown
 
-> 文档按账号隔离：切换账号看不到彼此的文档。
+> 文档按账号隔离：切换账号看不到彼此的文档。断网时仍可编辑，恢复后自动同步。
 `;
 
 export function newDoc(title = "未命名文档", content = ""): Doc {
@@ -40,24 +44,35 @@ export function newDoc(title = "未命名文档", content = ""): Doc {
         : `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     title,
     content,
+    rev: 0,
     updatedAt: Date.now(),
+    loaded: true,
   };
 }
 
+/** 读本地缓存。旧版本数据没有 rev，按 0 处理。 */
 export function loadDocs(userId: string): Doc[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = window.localStorage.getItem(docsKey(userId));
-    if (!raw) {
-      const seed = newDoc("欢迎使用 MarkText Web", WELCOME_DOC);
-      window.localStorage.setItem(docsKey(userId), JSON.stringify([seed]));
-      return [seed];
-    }
-    const parsed = JSON.parse(raw) as Doc[];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (d) => d && typeof d.id === "string" && typeof d.content === "string",
-    );
+    return parsed
+      .filter(
+        (d): d is Doc =>
+          !!d &&
+          typeof d === "object" &&
+          typeof (d as Doc).id === "string" &&
+          typeof (d as Doc).content === "string",
+      )
+      .map((d) => ({
+        ...d,
+        title: typeof d.title === "string" ? d.title : "",
+        rev: typeof d.rev === "number" ? d.rev : 0,
+        updatedAt: typeof d.updatedAt === "number" ? d.updatedAt : Date.now(),
+        loaded: true,
+      }));
   } catch {
     return [];
   }
@@ -65,7 +80,13 @@ export function loadDocs(userId: string): Doc[] {
 
 export function saveDocs(userId: string, docs: Doc[]): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(docsKey(userId), JSON.stringify(docs));
+  try {
+    // 只缓存已加载正文的文档，避免把空壳当成真实内容
+    const payload = docs.filter((d) => d.loaded !== false);
+    window.localStorage.setItem(docsKey(userId), JSON.stringify(payload));
+  } catch {
+    /* 配额超限等场景忽略，服务端仍是真源 */
+  }
 }
 
 /** 换号守卫：记录上次登录用户，按 userId 命名空间读取，天然不串号。 */

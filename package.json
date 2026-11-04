@@ -14,6 +14,8 @@
     "@autional/next": "^0.4.0",
     "@autional/react": "^0.3.1",
     "@muyajs/core": "^0.2.0",
+    "@neondatabase/serverless": "^1.2.0",
+    "jose": "^6.2.15",
     "next": "^15.5.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"

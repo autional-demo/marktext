@@ -13,7 +13,7 @@
 - KaTeX 数学公式、Mermaid 图表（由 muya 提供）
 - 账号登录 / 注册（Autional，邮箱 + 密码，SHA-256 哈希传输）
 - **Autional SSO 登录**（OAuth 2.0 授权码 + PKCE，公开客户端）
-- 文档按账号隔离，自动保存，导入 / 导出 `.md`
+- 文档按账号隔离，云端自动保存，导入 / 导出 `.md`
 - 深浅色跟随系统
 
 ## 技术栈
@@ -24,7 +24,7 @@
 | UI | React 19 + 原生 CSS |
 | 编辑器 | `@muyajs/core` 0.2.0（muya） |
 | 身份 | `@autional/core` + 自建 Context |
-| 存储 | localStorage（按 userId 命名空间） |
+| 存储 | Neon Postgres（服务端，字段级 AES-256-GCM 加密）+ localStorage 本地缓存 |
 | 部署 | Vercel |
 
 ## 本地运行
@@ -74,10 +74,12 @@ NEXT_PUBLIC_AUTIONAL_APP_ID=client-Ost6T4zMRKoh
 ## 目录
 
 ```
-app/           路由（/、/login、/oauth/callback、/bff 代理）
+app/           路由（/、/login、/oauth/callback、/bff 代理、/api/docs）
 components/    认证上下文、工作区、编辑器
-lib/           Autional 配置、文档存储
-scripts/       租户创建、SSO 预检、集成测试
+lib/           Autional 配置、文档缓存与 API 客户端
+lib/server/    服务端专用：数据库连接、JWT 验签、文档校验
+db/            Postgres 表结构
+scripts/       租户创建、SSO 预检、集成测试、数据库迁移
 ```
 
 ## 参考

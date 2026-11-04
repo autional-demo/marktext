@@ -3,41 +3,355 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Editor from "./editor";
 import { useAuth } from "./auth-provider";
-import { Doc, loadDocs, newDoc, rememberUser, saveDocs } from "@/lib/docs";
+import {
+  Doc,
+  WELCOME_DOC,
+  loadDocs,
+  newDoc,
+  rememberUser,
+  saveDocs,
+} from "@/lib/docs";
+import {
+  ApiError,
+  createDoc,
+  getDoc,
+  listDocs,
+  removeDoc,
+  saveDoc,
+} from "@/lib/docs-api";
+
+const SAVE_DELAY = 1200;
+const CACHE_DELAY = 500;
+
+type SaveStatus = "idle" | "saving" | "saved" | "offline" | "conflict";
+
+interface Conflict {
+  id: string;
+  server: { id: string; title: string; content: string; rev: number; updatedAt: string };
+}
 
 interface WorkspaceProps {
   userId: string;
 }
 
+function toMillis(value: string | number): number {
+  if (typeof value === "number") return value;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? Date.now() : parsed;
+}
+
 export default function Workspace({ userId }: WorkspaceProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, autional } = useAuth();
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [status, setStatus] = useState<SaveStatus>("idle");
+  const [everSynced, setEverSynced] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [conflict, setConflict] = useState<Conflict | null>(null);
+  const [editorEpoch, setEditorEpoch] = useState(0);
   const [ready, setReady] = useState(false);
   const [exporting, setExporting] = useState(false);
+
   const docsRef = useRef<Doc[]>([]);
+  const tokenRef = useRef<string | null>(null);
+  const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const cacheTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const persist = useCallback(
+  const getToken = useCallback(async (): Promise<string | null> => {
+    if (tokenRef.current) return tokenRef.current;
+    try {
+      const token = await autional.getAccessToken();
+      tokenRef.current = token;
+      return token;
+    } catch {
+      return null;
+    }
+  }, [autional]);
+
+  const scheduleCache = useCallback(() => {
+    if (cacheTimer.current) clearTimeout(cacheTimer.current);
+    cacheTimer.current = setTimeout(() => {
+      cacheTimer.current = null;
+      saveDocs(userId, docsRef.current);
+    }, CACHE_DELAY);
+  }, [userId]);
+
+  const applyDocs = useCallback(
     (next: Doc[]) => {
       docsRef.current = next;
       setDocs(next);
-      saveDocs(userId, next);
+      scheduleCache();
     },
-    [userId],
+    [scheduleCache],
   );
 
+  const updateDoc = useCallback(
+    (id: string, patch: Partial<Doc>) => {
+      applyDocs(
+        docsRef.current.map((d) => (d.id === id ? { ...d, ...patch } : d)),
+      );
+    },
+    [applyDocs],
+  );
+
+  /* ---------------- 保存 ---------------- */
+
+  const flushSave = useCallback(
+    async (id: string) => {
+      const doc = docsRef.current.find((d) => d.id === id);
+      if (!doc || doc.loaded === false) return;
+
+      const token = await getToken();
+      if (!token) {
+        setStatus("offline");
+        return;
+      }
+
+      setStatus("saving");
+      try {
+        const saved = await saveDoc(token, id, {
+          title: doc.title,
+          content: doc.content,
+          rev: doc.rev,
+        });
+        updateDoc(id, {
+          rev: saved.rev,
+          updatedAt: toMillis(saved.updatedAt),
+        });
+        setSavedAt(Date.now());
+        setStatus("saved");
+      } catch (err) {
+        if (err instanceof ApiError) {
+          if (err.status === 409) {
+            const server = (err.body as { doc?: Conflict["server"] } | undefined)?.doc;
+            if (server) {
+              setConflict({ id, server });
+              setStatus("conflict");
+              return;
+            }
+          }
+          if (err.status === 404) {
+            // 本机新建但服务端还没有：补一次创建
+            try {
+              const created = await createDoc(token, {
+                id,
+                title: doc.title,
+                content: doc.content,
+              });
+              updateDoc(id, {
+                rev: created.rev,
+                updatedAt: toMillis(created.updatedAt),
+              });
+              setSavedAt(Date.now());
+              setStatus("saved");
+              return;
+            } catch {
+              /* fallthrough */
+            }
+          }
+          if (err.status === 401) {
+            tokenRef.current = null;
+            setStatus("offline");
+            return;
+          }
+        }
+        setStatus("offline");
+      }
+    },
+    [getToken, updateDoc],
+  );
+
+  const queueSave = useCallback(
+    (id: string) => {
+      const prev = saveTimers.current.get(id);
+      if (prev) clearTimeout(prev);
+      saveTimers.current.set(
+        id,
+        setTimeout(() => {
+          saveTimers.current.delete(id);
+          void flushSave(id);
+        }, SAVE_DELAY),
+      );
+    },
+    [flushSave],
+  );
+
+  const flushAll = useCallback(() => {
+    for (const [id, timer] of saveTimers.current) {
+      clearTimeout(timer);
+      void flushSave(id);
+    }
+    saveTimers.current.clear();
+  }, [flushSave]);
+
+  /* ---------------- 初始加载与同步 ---------------- */
+
   useEffect(() => {
+    let alive = true;
     rememberUser(userId);
-    const loaded = loadDocs(userId);
-    docsRef.current = loaded;
-    setDocs(loaded);
+
+    const cached = loadDocs(userId);
+    docsRef.current = cached;
+    setDocs(cached);
     setActiveId((prev) =>
-      prev && loaded.some((d) => d.id === prev) ? prev : (loaded[0]?.id ?? null),
+      prev && cached.some((d) => d.id === prev) ? prev : (cached[0]?.id ?? null),
     );
     setReady(true);
+
+    void (async () => {
+      const token = await getToken();
+      if (!alive) return;
+      if (!token) {
+        setStatus("offline");
+        return;
+      }
+
+      let server;
+      try {
+        server = await listDocs(token);
+      } catch {
+        if (alive) setStatus("offline");
+        return;
+      }
+      if (!alive) return;
+
+      const localById = new Map(docsRef.current.map((d) => [d.id, d]));
+      const serverIds = new Set(server.map((d) => d.id));
+
+      // 1) 本机有、云端没有的 → 上传（只传从未同步过的 rev=0 文档）
+      //    rev > 0 却不在云端，说明在别的设备被删除，不能复活。
+      const uploaded = new Map<string, Doc>();
+      for (const local of docsRef.current) {
+        if (serverIds.has(local.id) || local.rev > 0) continue;
+        try {
+          const created = await createDoc(token, {
+            id: local.id,
+            title: local.title,
+            content: local.content,
+          });
+          uploaded.set(local.id, {
+            ...local,
+            rev: created.rev,
+            updatedAt: toMillis(created.updatedAt),
+          });
+        } catch {
+          /* 冲突或离线：保留本机版本，后续保存时会重试 */
+        }
+      }
+      if (!alive) return;
+
+      // 2) 合并：rev 相同才复用本地正文，否则标记待拉取
+      const merged: Doc[] = server.map((meta) => {
+        const local = localById.get(meta.id);
+        const sameRev = !!local && local.rev === meta.rev && local.loaded !== false;
+        return {
+          id: meta.id,
+          title: meta.title,
+          content: sameRev ? local!.content : "",
+          rev: meta.rev,
+          updatedAt: toMillis(meta.updatedAt),
+          loaded: sameRev,
+        };
+      });
+
+      // 3) 上传成功但列表里还没有的（首次上传）
+      for (const [, doc] of uploaded) {
+        if (!merged.some((d) => d.id === doc.id)) merged.unshift(doc);
+      }
+
+      // 4) 上传失败的本机文档保留在界面上，下次保存再重试
+      for (const local of docsRef.current) {
+        if (local.rev > 0) continue;
+        if (merged.some((d) => d.id === local.id)) continue;
+        merged.unshift(local);
+      }
+
+      // 5) 全新账号：造一篇欢迎文档
+      if (merged.length === 0) {
+        const welcome = newDoc("欢迎使用 MarkText Web", WELCOME_DOC);
+        merged.push(welcome);
+        try {
+          const created = await createDoc(token, {
+            id: welcome.id,
+            title: welcome.title,
+            content: welcome.content,
+          });
+          welcome.rev = created.rev;
+          welcome.updatedAt = toMillis(created.updatedAt);
+        } catch {
+          /* 离线也无所谓，保存时会补建 */
+        }
+      }
+
+      if (!alive) return;
+      applyDocs(merged);
+      setActiveId((prev) =>
+        prev && merged.some((d) => d.id === prev) ? prev : (merged[0]?.id ?? null),
+      );
+      setStatus("idle");
+      setEverSynced(true);
+    })();
+
+    return () => {
+      alive = false;
+    };
+    // 只在切换账号时重建
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
+
+  /* ---------------- 按需拉取正文 ---------------- */
+
+  useEffect(() => {
+    if (!activeId) return;
+    const doc = docsRef.current.find((d) => d.id === activeId);
+    if (!doc || doc.loaded !== false) return;
+
+    let alive = true;
+    void (async () => {
+      const token = await getToken();
+      if (!token) {
+        setStatus("offline");
+        return;
+      }
+      try {
+        const full = await getDoc(token, activeId);
+        if (!alive) return;
+        updateDoc(activeId, {
+          title: full.title,
+          content: full.content,
+          rev: full.rev,
+          updatedAt: toMillis(full.updatedAt),
+          loaded: true,
+        });
+      } catch {
+        if (alive) setStatus("offline");
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, [activeId, docs, getToken, updateDoc]);
+
+  /* ---------------- 离开页面前尽量落盘 ---------------- */
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushAll();
+    };
+    window.addEventListener("beforeunload", flushAll);
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      window.removeEventListener("beforeunload", flushAll);
+      document.removeEventListener("visibilitychange", onHide);
+      flushAll();
+      if (cacheTimer.current) clearTimeout(cacheTimer.current);
+      saveDocs(userId, docsRef.current);
+    };
+  }, [flushAll, userId]);
+
+  /* ---------------- 操作 ---------------- */
 
   const active = useMemo(
     () => docs.find((d) => d.id === activeId) ?? null,
@@ -45,46 +359,119 @@ export default function Workspace({ userId }: WorkspaceProps) {
   );
 
   const handleChange = useCallback(
-    (markdown: string) => {
-      if (!activeId) return;
-      const next = docsRef.current.map((d) =>
-        d.id === activeId ? { ...d, content: markdown, updatedAt: Date.now() } : d,
-      );
-      persist(next);
-      setSavedAt(Date.now());
+    (id: string, markdown: string) => {
+      updateDoc(id, { content: markdown, updatedAt: Date.now() });
+      setSavedAt(null);
+      queueSave(id);
     },
-    [activeId, persist],
+    [updateDoc, queueSave],
   );
 
   const addDoc = useCallback(() => {
     const doc = newDoc();
-    persist([doc, ...docsRef.current]);
+    applyDocs([doc, ...docsRef.current]);
     setActiveId(doc.id);
-  }, [persist]);
+    setConflict(null);
+
+    void (async () => {
+      const token = await getToken();
+      if (!token) {
+        setStatus("offline");
+        return;
+      }
+      try {
+        const created = await createDoc(token, {
+          id: doc.id,
+          title: doc.title,
+          content: doc.content,
+        });
+        updateDoc(doc.id, {
+          rev: created.rev,
+          updatedAt: toMillis(created.updatedAt),
+        });
+        setStatus("saved");
+      } catch {
+        setStatus("offline");
+      }
+    })();
+  }, [applyDocs, getToken, updateDoc]);
 
   const deleteDoc = useCallback(
     (id: string) => {
       const doc = docsRef.current.find((d) => d.id === id);
       if (!doc) return;
-      if (!window.confirm(`删除文档「${doc.title || "未命名文档"}」？此操作不可撤销。`)) {
+      if (
+        !window.confirm(`删除文档「${doc.title || "未命名文档"}」？此操作不可撤销。`)
+      ) {
         return;
       }
-      const next = docsRef.current.filter((d) => d.id !== id);
-      persist(next);
-      if (activeId === id) setActiveId(next[0]?.id ?? null);
+
+      const timer = saveTimers.current.get(id);
+      if (timer) {
+        clearTimeout(timer);
+        saveTimers.current.delete(id);
+      }
+
+      void (async () => {
+        const token = await getToken();
+        if (token) {
+          try {
+            await removeDoc(token, id);
+          } catch (err) {
+            if (!(err instanceof ApiError && err.status === 404)) {
+              window.alert("删除失败，请检查网络后重试。");
+              return;
+            }
+          }
+        }
+        const next = docsRef.current.filter((d) => d.id !== id);
+        applyDocs(next);
+        if (activeId === id) setActiveId(next[0]?.id ?? null);
+      })();
     },
-    [activeId, persist],
+    [activeId, applyDocs, getToken],
   );
 
   const renameDoc = useCallback(
     (title: string) => {
       if (!activeId) return;
-      const next = docsRef.current.map((d) =>
-        d.id === activeId ? { ...d, title, updatedAt: Date.now() } : d,
-      );
-      persist(next);
+      updateDoc(activeId, { title, updatedAt: Date.now() });
+      setSavedAt(null);
+      queueSave(activeId);
     },
-    [activeId, persist],
+    [activeId, updateDoc, queueSave],
+  );
+
+  const importDoc = useCallback(
+    (file: File) => {
+      void (async () => {
+        const text = await file.text();
+        const doc = newDoc(file.name.replace(/\.(md|markdown|txt)$/i, ""), text);
+        applyDocs([doc, ...docsRef.current]);
+        setActiveId(doc.id);
+
+        const token = await getToken();
+        if (!token) {
+          setStatus("offline");
+          return;
+        }
+        try {
+          const created = await createDoc(token, {
+            id: doc.id,
+            title: doc.title,
+            content: doc.content,
+          });
+          updateDoc(doc.id, {
+            rev: created.rev,
+            updatedAt: toMillis(created.updatedAt),
+          });
+          setStatus("saved");
+        } catch {
+          setStatus("offline");
+        }
+      })();
+    },
+    [applyDocs, getToken, updateDoc],
   );
 
   const exportDoc = useCallback(() => {
@@ -103,23 +490,60 @@ export default function Workspace({ userId }: WorkspaceProps) {
     }
   }, [active]);
 
-  const importDoc = useCallback(
-    async (file: File) => {
-      const text = await file.text();
-      const doc = newDoc(file.name.replace(/\.(md|markdown|txt)$/i, ""), text);
-      persist([doc, ...docsRef.current]);
-      setActiveId(doc.id);
-    },
-    [persist],
-  );
+  const loadServerVersion = useCallback(() => {
+    if (!conflict) return;
+    const server = conflict.server;
+    updateDoc(server.id, {
+      title: server.title,
+      content: server.content,
+      rev: server.rev,
+      updatedAt: toMillis(server.updatedAt),
+      loaded: true,
+    });
+    setEditorEpoch((n) => n + 1);
+    setConflict(null);
+    setSavedAt(Date.now());
+    setStatus("saved");
+  }, [conflict, updateDoc]);
+
+  const overwriteServer = useCallback(() => {
+    if (!conflict) return;
+    const doc = docsRef.current.find((d) => d.id === conflict.id);
+    if (!doc) return;
+
+    void (async () => {
+      const token = await getToken();
+      if (!token) {
+        setStatus("offline");
+        return;
+      }
+      try {
+        const saved = await saveDoc(token, conflict.id, {
+          title: doc.title,
+          content: doc.content,
+        });
+        updateDoc(conflict.id, {
+          rev: saved.rev,
+          updatedAt: toMillis(saved.updatedAt),
+        });
+        setConflict(null);
+        setSavedAt(Date.now());
+        setStatus("saved");
+      } catch {
+        setStatus("offline");
+      }
+    })();
+  }, [conflict, getToken, updateDoc]);
 
   const handleLogout = useCallback(async () => {
+    flushAll();
+    saveDocs(userId, docsRef.current);
     try {
       await logout();
     } finally {
       window.location.assign("/login");
     }
-  }, [logout]);
+  }, [flushAll, logout, userId]);
 
   if (!ready) {
     return (
@@ -129,6 +553,28 @@ export default function Workspace({ userId }: WorkspaceProps) {
       </div>
     );
   }
+
+  const timeLabel = savedAt
+    ? new Date(savedAt).toLocaleTimeString("zh-CN", {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "";
+
+  const statusText =
+    status === "conflict"
+      ? "版本冲突"
+      : status === "saving"
+        ? "保存中…"
+        : status === "offline"
+          ? "仅本机 · 未同步"
+          : status === "saved"
+            ? timeLabel
+              ? `已同步到云端 · ${timeLabel}`
+              : "已同步到云端"
+            : everSynced
+              ? "已同步到云端"
+              : "仅本机";
 
   return (
     <div className="app">
@@ -198,8 +644,11 @@ export default function Workspace({ userId }: WorkspaceProps) {
                 onChange={(e) => renameDoc(e.target.value)}
               />
               <div className="toolbar-actions">
-                <span className="save-state">
-                  {savedAt ? "已保存到本机" : "自动保存"}
+                <span
+                  className={`save-state ${status}`}
+                  title="本机缓存即时写入；云端按 1.2 秒防抖同步"
+                >
+                  {statusText}
                 </span>
                 <button onClick={() => fileRef.current?.click()} disabled={exporting}>
                   导入
@@ -215,18 +664,31 @@ export default function Workspace({ userId }: WorkspaceProps) {
                 hidden
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) void importDoc(file);
+                  if (file) importDoc(file);
                   e.target.value = "";
                 }}
               />
             </header>
+
+            {conflict && conflict.id === active.id && (
+              <div className="conflict-bar">
+                <span>这篇文档在其它设备被修改过。</span>
+                <button onClick={loadServerVersion}>载入云端版本</button>
+                <button onClick={overwriteServer}>用本机覆盖</button>
+              </div>
+            )}
+
             <div className="editor-shell">
-              <Editor
-                key={active.id}
-                docId={active.id}
-                initialContent={active.content}
-                onChange={handleChange}
-              />
+              {active.loaded === false ? (
+                <div className="editor-loading">正在加载文档…</div>
+              ) : (
+                <Editor
+                  key={`${active.id}:${editorEpoch}`}
+                  docId={active.id}
+                  initialContent={active.content}
+                  onChange={handleChange}
+                />
+              )}
             </div>
           </>
         ) : (

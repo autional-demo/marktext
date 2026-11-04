@@ -6,7 +6,7 @@ import "@muyajs/core/lib/core.css";
 interface EditorProps {
   docId: string;
   initialContent: string;
-  onChange: (markdown: string) => void;
+  onChange: (docId: string, markdown: string) => void;
 }
 
 let pluginsRegistered = false;
@@ -93,7 +93,7 @@ export default function Editor({ docId, initialContent, onChange }: EditorProps)
       } catch {
         return;
       }
-      onChangeRef.current(markdown);
+      onChangeRef.current(docId, markdown);
     };
 
     const schedule = () => {

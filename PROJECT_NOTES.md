@@ -58,6 +58,18 @@ NEXT_PUBLIC_AUTIONAL_API_URL=/bff
 NEXT_PUBLIC_AUTIONAL_APP_ID=client-Ost6T4zMRKoh
 ```
 
+服务端专用（不要加 `NEXT_PUBLIC_`）：
+
+```
+DATABASE_URL=postgresql://...-pooler...neon.tech/neondb?sslmode=require
+CONTENT_ENCRYPTION_KEY=<32 字节 base64>
+CONTENT_ENCRYPTION_KEY_KID=k1
+```
+
+`CONTENT_ENCRYPTION_KEY` 用于文档标题与正文的字段级加密。**丢失即无法解密已有文档**，必须在密码管理器中另存一份。
+
+本地配置在 `.env.local`（已 gitignore）。生产环境变量在 Vercel 项目里。
+
 本地：复制 `.env.example` 为 `.env.local`。
 
 ## 5. 常用命令
@@ -96,6 +108,8 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 生产页面 | 200 |
 | 生产密码登录 | 200（管理员与测试账号） |
 | Git 触发部署 | 多次 READY（`githubCommitRef=main`） |
+| 文档云同步（本地 E2E） | 13/13（`scripts/e2e-local.mjs`，含 401/创建/列表/读取/保存/409/密文/删除） |
+| 字段加密 | 库内为 `v1:` 密文；AAD 绑定租户+用户+文档+字段；篡改拒绝 |
 
 ## 7. 关键决策
 
@@ -104,13 +118,16 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 3. **不用 portal 客户端**：`client-YqzCy3ZOwQur` 是 `kind=portal`，回调固定在 auth 域。
 4. **编辑器事件挂 `document`**：muya 会重建宿主节点，挂宿主上的监听器会失效。
 5. **提权方式**：试用租户是 `member`，用 `role-activations` 申请 `admin`（1 小时）后建客户端。
+6. **文档走服务端而非浏览器直连**：浏览器直连数据库需要 RLS 策略，漏一条即全表公开；改为 Next.js Route Handler + JWKS 验签，授权逻辑在 TypeScript 里。
+7. **正文与标题字段级加密**：AES-256-GCM，密钥在 Vercel 环境变量；Neon 只能看到密文。代价是失去服务端正文检索（当前无此需求）。
+8. **本地优先同步**：localStorage 作为离线缓存，Neon 为真源；用 `rev` 做乐观并发控制，冲突时由用户选择保留哪版。
 
 ## 8. 已知问题 / 待办
 
 | 项 | 说明 |
 |---|---|
 | 浏览器点击 SSO 未验证 | 本机浏览器代理不稳定（`ERR_PROXY_CONNECTION_FAILED`）；API 级全链路已通过 |
-| 数据仅本机 | localStorage 按 userId 隔离；跨设备需接 Blob/数据库 |
+| 云同步 | 已接入 Neon Postgres（ap-southeast-1）；localStorage 仅作本地缓存与离线兜底 |
 | 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除，仅保留 `marktext-web`） |
 | 测试账号 | `marktext.test1` 因风控验证码已删除，由 `marktext.demo1` 替代；密码见交付消息 |
 | 管理门户 404 | `admin.autional.cn/<slug>/` 平台侧返回 404 |
