@@ -71,8 +71,8 @@ function registerPlugins(core: any) {
 }
 
 export default function Editor({ docId, initialContent, onChange }: EditorProps) {
-  // Callback ref: React may replace the host node; a state-backed ref makes
-  // the editor follow the live node instead of a detached one.
+  // Callback ref: the editor is remounted per document, so keep the live host
+  // node in state and let the effect follow it.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -109,8 +109,13 @@ export default function Editor({ docId, initialContent, onChange }: EditorProps)
       if (disposed || !host.isConnected) return;
       registerPlugins(core);
 
-      host.innerHTML = "";
-      const muya = new core.Muya(host, {
+      // Muya replaces the node it is given (`container.replaceWith(editor)`).
+      // Pass a throwaway child so React keeps owning `.muya-host`; otherwise
+      // React's unmount removes an already-detached node and throws
+      // NotFoundError: Failed to execute 'removeChild' on 'Node'.
+      const mount = document.createElement("div");
+      host.replaceChildren(mount);
+      const muya = new core.Muya(mount, {
         markdown: initialContent,
         locale: core.zh,
         codeBlockLineNumbers: true,
@@ -127,6 +132,11 @@ export default function Editor({ docId, initialContent, onChange }: EditorProps)
         muya.init();
       } catch (err) {
         console.error("[editor] init failed", err);
+        try {
+          muya.destroy();
+        } catch {
+          /* ignore */
+        }
         host.innerHTML = `<div class="editor-error">编辑器加载失败：${
           err instanceof Error ? err.message : String(err)
         }</div>`;
