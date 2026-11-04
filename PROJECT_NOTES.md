@@ -110,6 +110,11 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | Git 触发部署 | 多次 READY（`githubCommitRef=main`） |
 | 文档云同步（本地 E2E） | 13/13（`scripts/e2e-local.mjs`，含 401/创建/列表/读取/保存/409/密文/删除） |
 | 字段加密 | 库内为 `v1:` 密文；AAD 绑定租户+用户+文档+字段；篡改拒绝 |
+| 生产 `/api/docs` | 401（鉴权生效） |
+| 生产函数区域 | `sin1`（新加坡），与 Neon 同区 |
+| 生产 `/d/[id]` | 200（独立 URL 路由） |
+| 生产 PWA | `/manifest.webmanifest`、`/sw.js`、`/icon.svg` 均 200 |
+| 真实账号同步 | `new doc 001` 已入库，rev=16，正文为密文 |
 
 ## 7. 关键决策
 
@@ -118,15 +123,23 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 3. **不用 portal 客户端**：`client-YqzCy3ZOwQur` 是 `kind=portal`，回调固定在 auth 域。
 4. **编辑器事件挂 `document`**：muya 会重建宿主节点，挂宿主上的监听器会失效。
 5. **提权方式**：试用租户是 `member`，用 `role-activations` 申请 `admin`（1 小时）后建客户端。
-6. **文档走服务端而非浏览器直连**：浏览器直连数据库需要 RLS 策略，漏一条即全表公开；改为 Next.js Route Handler + JWKS 验签，授权逻辑在 TypeScript 里。
+6. **文档走服务端而非浏览器直连**：浏览器直连数据库需要 RLS 策略，漏一条即全表公开；改为 Next.js Route Handler + 服务端鉴权，授权逻辑在 TypeScript 里。
 7. **正文与标题字段级加密**：AES-256-GCM，密钥在 Vercel 环境变量；Neon 只能看到密文。代价是失去服务端正文检索（当前无此需求）。
 8. **本地优先同步**：localStorage 作为离线缓存，Neon 为真源；用 `rev` 做乐观并发控制，冲突时由用户选择保留哪版。
+9. **token 校验用 `/me` 而不是 JWKS**：真实 access token 没有 `kid`，签名密钥也不在公开 JWKS 中，JWKS 验签必然失败。改为解码 exp + 调身份服务 `/me` 权威校验，结果缓存 60 秒。
+10. **函数区域用 `vercel.json`**：`preferredRegion` 在 Next.js 15 已废弃、Vercel 对 Node 运行时不生效。改为项目级 `regions: ["sin1"]`，与 Neon 区域一致。
+11. **每条笔记独立 URL**：`/d/<id>`，用 `history.pushState` 同步地址栏，不触发 RSC 导航，切换无加载。
+12. **PWA 只做壳缓存**：导航 network-first、静态资源 cache-first、API 一律不缓存，避免缓存用户数据或卡在旧版本。
 
 ## 8. 已知问题 / 待办
 
 | 项 | 说明 |
 |---|---|
 | 浏览器点击 SSO 未验证 | 本机浏览器代理不稳定（`ERR_PROXY_CONNECTION_FAILED`）；API 级全链路已通过 |
+| Preview 的 SSO 不可用 | Autional 只登记了生产回调；Preview 域名每次变化，不建议加白名单。Preview 可用密码登录 |
+| PWA 图标为 SVG | Chrome 通常接受 `sizes: any`；若安装按钮不出现，需补 192/512 PNG |
+| 离线删除不排队 | 断网时删除只改本机，恢复后可能被云端记录“复活” |
+| 令牌被吊销 | 服务端返回 `40000502 refresh token has been revoked` 时 SDK 不自动登出，已加提示条与一键重登 |
 | 云同步 | 已接入 Neon Postgres（ap-southeast-1）；localStorage 仅作本地缓存与离线兜底 |
 | 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除，仅保留 `marktext-web`） |
 | 测试账号 | `marktext.test1` 因风控验证码已删除，由 `marktext.demo1` 替代；密码见交付消息 |
@@ -144,6 +157,10 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 2026-11-04 | 发布到 GitHub，Vercel 改为 Git 联动 |
 | 2026-11-04 | README 补在线地址；新增 `PROJECT_NOTES.md` |
 | 2026-11-04 | 清理 9 个空试用租户；重建测试账号（`demo1` 替代 `test1`） |
+| 2026-11-04 | 接入 Neon Postgres：`/api/docs`、字段加密、本地优先同步 |
+| 2026-11-04 | 修复三个上线阻塞：函数区域、`iss` 校验、JWKS 不适用 |
+| 2026-11-04 | 上线笔记独立 URL（`/d/[id]`）与 PWA |
+| 2026-11-04 | 生产部署 `ca346e7`，功能验收通过 |
 
 ## 10. 凭据
 
