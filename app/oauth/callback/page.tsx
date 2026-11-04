@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import { takeNext } from "@/lib/nav";
 
 export default function OAuthCallbackPage() {
   const { autional } = useAuth();
@@ -18,7 +19,7 @@ export default function OAuthCallbackPage() {
     (async () => {
       try {
         await autional.handleOAuthCallback(window.location.href);
-        if (!cancelled) router.replace("/");
+        if (!cancelled) router.replace(takeNext());
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "登录回调处理失败。");

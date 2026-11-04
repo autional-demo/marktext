@@ -19,6 +19,7 @@ import {
   removeDoc,
   saveDoc,
 } from "@/lib/docs-api";
+import { docPath } from "@/lib/nav";
 
 const SAVE_DELAY = 1200;
 const CACHE_DELAY = 500;
@@ -32,6 +33,7 @@ interface Conflict {
 
 interface WorkspaceProps {
   userId: string;
+  initialDocId?: string;
 }
 
 function toMillis(value: string | number): number {
@@ -40,7 +42,7 @@ function toMillis(value: string | number): number {
   return Number.isNaN(parsed) ? Date.now() : parsed;
 }
 
-export default function Workspace({ userId }: WorkspaceProps) {
+export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
   const { user, logout, autional } = useAuth();
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -198,9 +200,10 @@ export default function Workspace({ userId }: WorkspaceProps) {
     const cached = loadDocs(userId);
     docsRef.current = cached;
     setDocs(cached);
-    setActiveId((prev) =>
-      prev && cached.some((d) => d.id === prev) ? prev : (cached[0]?.id ?? null),
-    );
+    setActiveId(() => {
+      if (initialDocId && cached.some((d) => d.id === initialDocId)) return initialDocId;
+      return cached[0]?.id ?? null;
+    });
     setReady(true);
 
     void (async () => {
@@ -290,9 +293,11 @@ export default function Workspace({ userId }: WorkspaceProps) {
 
       if (!alive) return;
       applyDocs(merged);
-      setActiveId((prev) =>
-        prev && merged.some((d) => d.id === prev) ? prev : (merged[0]?.id ?? null),
-      );
+      setActiveId((prev) => {
+        if (initialDocId && merged.some((d) => d.id === initialDocId)) return initialDocId;
+        if (prev && merged.some((d) => d.id === prev)) return prev;
+        return merged[0]?.id ?? null;
+      });
       setStatus("idle");
       setEverSynced(true);
     })();
@@ -355,6 +360,40 @@ export default function Workspace({ userId }: WorkspaceProps) {
     };
   }, [flushAll, userId]);
 
+  /* ---------------- URL 与浏览器历史 ---------------- */
+
+  // 当前文档变化时同步地址栏；用 replaceState 避免污染历史
+  useEffect(() => {
+    if (!ready) return;
+    const target = activeId ? docPath(activeId) : "/";
+    if (window.location.pathname !== target) {
+      window.history.replaceState(null, "", target);
+    }
+  }, [activeId, ready]);
+
+  // 浏览器前进/后退
+  useEffect(() => {
+    const onPop = () => {
+      const match = /^\/d\/([^/]+)\/?$/.exec(window.location.pathname);
+      let id: string | null = null;
+      if (match) {
+        try {
+          id = decodeURIComponent(match[1]);
+        } catch {
+          id = null;
+        }
+      }
+      setActiveId(id);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  const selectDoc = useCallback((id: string) => {
+    setActiveId(id);
+    window.history.pushState(null, "", docPath(id));
+  }, []);
+
   /* ---------------- 操作 ---------------- */
 
   const active = useMemo(
@@ -374,7 +413,7 @@ export default function Workspace({ userId }: WorkspaceProps) {
   const addDoc = useCallback(() => {
     const doc = newDoc();
     applyDocs([doc, ...docsRef.current]);
-    setActiveId(doc.id);
+    selectDoc(doc.id);
     setConflict(null);
 
     void (async () => {
@@ -398,7 +437,7 @@ export default function Workspace({ userId }: WorkspaceProps) {
         setStatus("offline");
       }
     })();
-  }, [applyDocs, getToken, updateDoc]);
+  }, [applyDocs, getToken, selectDoc, updateDoc]);
 
   const deleteDoc = useCallback(
     (id: string) => {
@@ -452,7 +491,7 @@ export default function Workspace({ userId }: WorkspaceProps) {
         const text = await file.text();
         const doc = newDoc(file.name.replace(/\.(md|markdown|txt)$/i, ""), text);
         applyDocs([doc, ...docsRef.current]);
-        setActiveId(doc.id);
+        selectDoc(doc.id);
 
         const token = await getToken();
         if (!token) {
@@ -475,7 +514,7 @@ export default function Workspace({ userId }: WorkspaceProps) {
         }
       })();
     },
-    [applyDocs, getToken, updateDoc],
+    [applyDocs, getToken, selectDoc, updateDoc],
   );
 
   const exportDoc = useCallback(() => {
@@ -611,11 +650,11 @@ export default function Workspace({ userId }: WorkspaceProps) {
             <div
               key={d.id}
               className={`doc-item ${d.id === activeId ? "active" : ""}`}
-              onClick={() => setActiveId(d.id)}
+              onClick={() => selectDoc(d.id)}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") setActiveId(d.id);
+                if (e.key === "Enter" || e.key === " ") selectDoc(d.id);
               }}
             >
               <span className="doc-title">{d.title || "未命名文档"}</span>

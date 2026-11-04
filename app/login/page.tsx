@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { rememberNext, safeNext } from "@/lib/nav";
 import { AUTHORIZE_URL, SSO_ENABLED, callbackUri } from "@/lib/autional";
 
 type Mode = "login" | "register";
@@ -19,7 +19,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace("/");
+      router.replace(safeNext());
     }
   }, [isLoading, isAuthenticated, router]);
 
@@ -34,7 +34,7 @@ export default function LoginPage() {
       } else {
         await register(email.trim(), password);
       }
-      router.replace("/");
+      router.replace(safeNext());
     } catch (err) {
       const message = err instanceof Error ? err.message : "操作失败，请稍后重试。";
       setError(message);
@@ -46,6 +46,7 @@ export default function LoginPage() {
     setBusy(true);
     setError(null);
     try {
+      rememberNext();
       await autional.loginWithOAuth({
         authorizeUrl: AUTHORIZE_URL,
         redirectUri: callbackUri(),
