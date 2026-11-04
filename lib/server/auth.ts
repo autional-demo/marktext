@@ -47,6 +47,16 @@ export interface Caller {
  * 只信签名 + iss + exp，不信前端传来的任何 id。
  * 算法固定 RS256，避免 alg 混淆（包括 alg: none）。
  */
+/**
+ * 可选：限制可接受的 iss。真实 token 的 iss 是 "identity-service"，
+ * SSO 会话可能不同，因此默认不校验 iss，只依赖签名 + exp。
+ * 需要收紧时设置 AUTIONAL_ALLOWED_ISSUERS（逗号分隔）。
+ */
+const ALLOWED_ISSUERS = (process.env.AUTIONAL_ALLOWED_ISSUERS ?? "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 export async function requireCaller(req: Request): Promise<Caller> {
   const header = req.headers.get("authorization") ?? "";
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
@@ -55,12 +65,19 @@ export async function requireCaller(req: Request): Promise<Caller> {
   let payload: JWTPayload;
   try {
     ({ payload } = await jwtVerify(match[1], jwks(), {
-      issuer: ISSUER,
       algorithms: ["RS256"],
       clockTolerance: 5,
     }));
   } catch {
     throw new HttpError(401, "token 无效或已过期");
+  }
+
+  if (
+    ALLOWED_ISSUERS.length > 0 &&
+    typeof payload.iss === "string" &&
+    !ALLOWED_ISSUERS.includes(payload.iss)
+  ) {
+    throw new HttpError(401, "token 签发方不受信任");
   }
 
   const userId =
