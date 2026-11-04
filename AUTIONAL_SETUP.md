@@ -9,7 +9,7 @@
 | Issuer | `https://api.autional.cn` |
 | API（BFF，同源代理） | `/bff` → `https://api.autional.cn/bff` |
 | 生产地址 | https://marktext-web.vercel.app |
-| 管理员邮箱 | `jd7438716@gmail.com` |
+| 管理员邮箱 | 见交付消息（不写入公开仓库） |
 | 状态 | active |
 
 > 管理员密码只在创建时显示一次，未写入任何文件。请存入密码管理器。
@@ -28,14 +28,8 @@
 
 ## 测试账号
 
-| 邮箱 | 密码 | 用途 |
-|---|---|---|
-| `marktext.test1@gmail.com` | `Test#Marktext1` | 隔离测试 A |
-| `marktext.test2@gmail.com` | `Test#Marktext2` | 隔离测试 B |
-| `marktext.test3@gmail.com` | `Test#Marktext3` | 隔离测试 C |
-
-> 测试账号由公开注册接口创建（`POST /identity/api/v1/auth/register`）。
-> 生产使用请改为真实邮箱，或由管理员在后台创建。
+已创建 3 个测试账号（`marktext.test1/2/3@gmail.com`）。
+**邮箱与密码只在交付消息中提供**，不写入仓库（仓库可能公开）。
 
 ## 为什么用同源代理
 
