@@ -332,6 +332,26 @@ button {
   border-bottom: 1px solid rgba(220, 38, 38, 0.25);
 }
 
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(217, 119, 6, 0.1);
+  border-bottom: 1px solid rgba(217, 119, 6, 0.3);
+}
+
+.session-bar button {
+  border: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text);
+  font-size: 12px;
+  padding: 5px 10px;
+  border-radius: 6px;
+}
+
 .conflict-bar button {
   border: 1px solid var(--border);
   background: var(--bg-subtle);

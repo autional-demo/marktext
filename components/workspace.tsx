@@ -48,6 +48,7 @@ export default function Workspace({ userId }: WorkspaceProps) {
   const [everSynced, setEverSynced] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const [ready, setReady] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -63,8 +64,10 @@ export default function Workspace({ userId }: WorkspaceProps) {
     try {
       const token = await autional.getAccessToken();
       tokenRef.current = token;
+      if (!token) setSessionExpired(true);
       return token;
     } catch {
+      setSessionExpired(true);
       return null;
     }
   }, [autional]);
@@ -152,6 +155,7 @@ export default function Workspace({ userId }: WorkspaceProps) {
           }
           if (err.status === 401) {
             tokenRef.current = null;
+            setSessionExpired(true);
             setStatus("offline");
             return;
           }
@@ -545,6 +549,18 @@ export default function Workspace({ userId }: WorkspaceProps) {
     }
   }, [flushAll, logout, userId]);
 
+  const relogin = useCallback(async () => {
+    flushAll();
+    saveDocs(userId, docsRef.current);
+    try {
+      await autional.logout();
+    } catch {
+      /* 令牌已失效时 logout 也可能失败，忽略 */
+    } finally {
+      window.location.assign("/login");
+    }
+  }, [autional, flushAll, userId]);
+
   if (!ready) {
     return (
       <div className="splash">
@@ -669,6 +685,13 @@ export default function Workspace({ userId }: WorkspaceProps) {
                 }}
               />
             </header>
+
+            {sessionExpired && (
+              <div className="session-bar">
+                <span>登录状态已失效，改动已保存在本机。</span>
+                <button onClick={relogin}>重新登录</button>
+              </div>
+            )}
 
             {conflict && conflict.id === active.id && (
               <div className="conflict-bar">
