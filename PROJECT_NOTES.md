@@ -16,7 +16,7 @@
 |---|---|
 | 生产地址 | https://marktext-web.vercel.app |
 | 部署源仓库 | https://github.com/autional-demo/marktext （分支 `main`） |
-| 私有镜像 | https://github.com/jd7438716/marktext-web |
+| 本地 remote | `origin`（同一仓库） |
 | Vercel 项目 | `marktext-web`（team `jd7438716-gmailcoms-projects`） |
 | 生产分支 | `main` |
 | 自动部署 | push 到 `main` → Vercel 生产；其他分支 → Preview |
@@ -78,10 +78,8 @@ TENANT_ID=01M6JBFH2T3P7HYR3MSM0SD5MG \
 TEST_EMAIL=<测试邮箱> TEST_PASSWORD=<测试密码> \
 node scripts/integration-test.mjs
 
-# 发布（首次需先加 fork remote）
-git remote add fork https://github.com/autional-demo/marktext.git
-git push fork main          # fork = autional-demo/marktext（触发部署）
-git push origin main        # origin = 私有镜像（仅备份）
+# 发布
+git push origin main        # origin = autional-demo/marktext（触发部署）
 ```
 
 ## 6. 验证结果

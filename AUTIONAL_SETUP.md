@@ -144,7 +144,7 @@ npm run build && npm start
 
 - GitHub：`https://github.com/autional-demo/marktext`，生产分支 `main`
 - 首次：`git remote add fork https://github.com/autional-demo/marktext.git`
-- Vercel 项目 `marktext-web` 已与该仓库联动；`git push fork main` 即自动部署
+- Vercel 项目 `marktext-web` 已与该仓库联动；`git push origin main` 即自动部署
 - CLI 兜底：`npx vercel --prod`
 
 Vercel 环境变量（Production）：

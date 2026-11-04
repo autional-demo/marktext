@@ -53,14 +53,10 @@ npm start
 | 自动部署 | push 到 `main` → 生产部署；其他分支 → Preview |
 
 ```bash
-# 首次：
-git remote add fork https://github.com/autional-demo/marktext.git
-# 发布：
-git push fork main     # 触发 Vercel 生产部署
+git push origin main     # 触发 Vercel 生产部署
 ```
 
-> `origin` 是私有镜像（`jd7438716/marktext-web`），`fork` 是部署源（`autional-demo/marktext`）。
-> 只推 `origin` 不会触发部署。
+> `origin` 就是部署源 `autional-demo/marktext`（分支 `main`）。
 
 CLI 仅作兜底：`npx vercel --prod`。
 
