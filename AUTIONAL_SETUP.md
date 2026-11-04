@@ -28,7 +28,7 @@
 
 ## 测试账号
 
-已创建 3 个测试账号（`marktext.test1/2/3@gmail.com`）。
+已创建测试账号（`marktext.demo1@gmail.com`、`marktext.test2@gmail.com`、`marktext.test3@gmail.com`）。
 **邮箱与密码只在交付消息中提供**，不写入仓库（仓库可能公开）。
 
 ## 为什么用同源代理

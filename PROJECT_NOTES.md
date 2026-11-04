@@ -111,7 +111,7 @@ git push origin main        # origin = 私有镜像（仅备份）
 |---|---|
 | 浏览器点击 SSO 未验证 | 本机浏览器代理不稳定（`ERR_PROXY_CONNECTION_FAILED`）；API 级全链路已通过 |
 | 数据仅本机 | localStorage 按 userId 隔离；跨设备需接 Blob/数据库 |
-| 试用租户残留 | 排查时创建了若干空试用租户，需后台清理；同 IP 试用配额已用尽 |
+| 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除） |
 | 管理门户 404 | `admin.autional.cn/<slug>/` 平台侧返回 404 |
 | fork 默认分支 | 仍为 `develop`；如需访客直达应用代码，可改为 `main` |
 
