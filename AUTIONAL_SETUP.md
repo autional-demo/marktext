@@ -24,12 +24,15 @@
 | 开发者门户 | https://developer.autional.cn | 文档（全局） |
 | 系统状态 | https://status.autional.cn | 服务状态（全局） |
 
-> 说明：门户页面当前返回 404，属平台侧（我们仅按 Skill 记录地址）。
+> 说明：`admin.autional.cn/<slug>/` 与部分 `user.autional.cn/<slug>/` 路由当前返回 404，
+> 属平台侧路由问题；门户能力可改用 API / 角色激活。
 
 ## 测试账号
 
 已创建测试账号（`marktext.demo1@gmail.com`、`marktext.test2@gmail.com`、`marktext.test3@gmail.com`）。
 **邮箱与密码只在交付消息中提供**，不写入仓库（仓库可能公开）。
+
+> 早期 `marktext.test1@gmail.com` 因多次失败被风控要求验证码，已删除，由 `demo1` 替代。
 
 ## 为什么用同源代理
 
@@ -49,21 +52,35 @@ Autional 的 identity API 走 **CORS 白名单**，默认只放行自有门户�
 NEXT_PUBLIC_AUTIONAL_TENANT_ID=01M6JBFH2T3P7HYR3MSM0SD5MG
 NEXT_PUBLIC_AUTIONAL_ISSUER=https://api.autional.cn
 NEXT_PUBLIC_AUTIONAL_API_URL=/bff
-NEXT_PUBLIC_AUTIONAL_APP_ID=
+NEXT_PUBLIC_AUTIONAL_APP_ID=client-Ost6T4zMRKoh
 NEXT_PUBLIC_AUTIONAL_AUTHORIZE_URL=https://auth.autional.cn/oauth/api/v1/oauth/authorize
 ```
 
 - `NEXT_PUBLIC_AUTIONAL_TENANT_ID` 必填：issuer 为共享域名，SDK 无法从子域推导租户。
-- `NEXT_PUBLIC_AUTIONAL_APP_ID` 留空 = 只启用邮箱密码登录；填写后登录页出现 SSO 按钮。
+- `NEXT_PUBLIC_AUTIONAL_APP_ID` 填了才显示「使用 Autional SSO 登录」；留空则只保留邮箱密码登录。
+- `NEXT_PUBLIC_*` 会打进前端产物，只放公开标识，不要放密钥。
 
 ## 登录方式
 
-当前启用：**邮箱 + 密码**（租户 `login_methods` 已包含 `password`）。
+当前启用：**邮箱 + 密码** 与 **SSO**（均基于 Autional）。
 
 - 密码传输：`hash` 模式，`SHA-256(password + "|" + tenantId)`，由 SDK 自动处理。
 - 注册：应用内自行调用 `POST /identity/api/v1/auth/register`（`tenant_id` 为 snake_case），
   因为 `@autional/core@0.4.1` 的 `register()` 发送 `tenantId`，会被服务端拒绝。
 - 会话：SDK 管理 token；401 时自动刷新；多 Tab 通过 `syncTabs` 同步。
+- SSO：登录页按钮 → 授权码 + PKCE → `/oauth/callback` 换票（经同源 `/bff`）。
+
+### 登录失败排查
+
+| 现象 | 含义 | 处理 |
+|---|---|---|
+| `40800505 captcha verification required` | 该账号短期内失败过多，被风控要求验证码 | 换账号；或用管理员 `account-unlocks` 解锁后仍不行则重建账号 |
+| `61000104 password content mismatch` | 密码哈希与租户策略不一致 | 确认用 `SHA-256(pw + "\|" + tenantId)` |
+| `40000502 invalid credentials` | 账号/密码错误 | 确认账号存在；必要时重置密码（勿用管理员重置接口写自定义哈希） |
+| SSO 停在授权页 | Autional 会话未登录 | 在授权页用管理员账号登录并同意授权 |
+| SSO 回调后报错 | 回调地址/CORS 不匹配 | 跑 `node scripts/check-sso.mjs` |
+
+> 管理员重置密码接口与登录哈希策略不一致，**不要**用它来“设置已知密码”；需要固定密码时用注册接口新建账号。
 
 ## SSO（已启用）
 
@@ -126,7 +143,8 @@ npm run build && npm start
 ### 发布（GitHub → Vercel）
 
 - GitHub：`https://github.com/autional-demo/marktext`，生产分支 `main`
-- Vercel 项目 `marktext-web` 已与该仓库联动；push 到 `main` 即自动部署
+- 首次：`git remote add fork https://github.com/autional-demo/marktext.git`
+- Vercel 项目 `marktext-web` 已与该仓库联动；`git push fork main` 即自动部署
 - CLI 兜底：`npx vercel --prod`
 
 Vercel 环境变量（Production）：
@@ -135,6 +153,7 @@ Vercel 环境变量（Production）：
 NEXT_PUBLIC_AUTIONAL_TENANT_ID=01M6JBFH2T3P7HYR3MSM0SD5MG
 NEXT_PUBLIC_AUTIONAL_ISSUER=https://api.autional.cn
 NEXT_PUBLIC_AUTIONAL_API_URL=/bff
+NEXT_PUBLIC_AUTIONAL_APP_ID=client-Ost6T4zMRKoh
 ```
 
 ## 数据隔离

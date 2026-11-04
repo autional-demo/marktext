@@ -78,7 +78,8 @@ TENANT_ID=01M6JBFH2T3P7HYR3MSM0SD5MG \
 TEST_EMAIL=<测试邮箱> TEST_PASSWORD=<测试密码> \
 node scripts/integration-test.mjs
 
-# 发布
+# 发布（首次需先加 fork remote）
+git remote add fork https://github.com/autional-demo/marktext.git
 git push fork main          # fork = autional-demo/marktext（触发部署）
 git push origin main        # origin = 私有镜像（仅备份）
 ```
@@ -95,7 +96,8 @@ git push origin main        # origin = 私有镜像（仅备份）
 | userinfo | 200，邮箱正确 |
 | 生产 `/bff` 代理换票 | 200 |
 | 生产页面 | 200 |
-| Git 触发部署 | 2 次 READY（`githubCommitRef=main`） |
+| 生产密码登录 | 200（管理员与测试账号） |
+| Git 触发部署 | 多次 READY（`githubCommitRef=main`） |
 
 ## 7. 关键决策
 
@@ -111,7 +113,8 @@ git push origin main        # origin = 私有镜像（仅备份）
 |---|---|
 | 浏览器点击 SSO 未验证 | 本机浏览器代理不稳定（`ERR_PROXY_CONNECTION_FAILED`）；API 级全链路已通过 |
 | 数据仅本机 | localStorage 按 userId 隔离；跨设备需接 Blob/数据库 |
-| 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除） |
+| 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除，仅保留 `marktext-web`） |
+| 测试账号 | `marktext.test1` 因风控验证码已删除，由 `marktext.demo1` 替代；密码见交付消息 |
 | 管理门户 404 | `admin.autional.cn/<slug>/` 平台侧返回 404 |
 | fork 默认分支 | 仍为 `develop`；如需访客直达应用代码，可改为 `main` |
 
@@ -124,7 +127,11 @@ git push origin main        # origin = 私有镜像（仅备份）
 | 2026-11-04 | 首次 CLI 部署到 Vercel |
 | 2026-11-04 | 创建应用客户端，启用 SSO（OAuth 2.0 + PKCE） |
 | 2026-11-04 | 发布到 GitHub，Vercel 改为 Git 联动 |
+| 2026-11-04 | README 补在线地址；新增 `PROJECT_NOTES.md` |
+| 2026-11-04 | 清理 9 个空试用租户；重建测试账号（`demo1` 替代 `test1`） |
 
 ## 10. 凭据
 
 管理员密码、测试账号密码、个人邮箱**不在本仓库**。请向交付人索取。
+
+> 当前可用测试账号：`marktext.demo1@gmail.com`、`marktext.test2@gmail.com`、`marktext.test3@gmail.com`（密码见交付消息）。

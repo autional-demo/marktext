@@ -31,7 +31,7 @@
 
 ```bash
 npm install
-cp .env.example .env.local   # 填入 NEXT_PUBLIC_AUTIONAL_TENANT_ID
+cp .env.example .env.local   # 已含公开配置；补上 NEXT_PUBLIC_AUTIONAL_TENANT_ID
 npm run dev
 ```
 
@@ -53,7 +53,10 @@ npm start
 | 自动部署 | push 到 `main` → 生产部署；其他分支 → Preview |
 
 ```bash
-git push fork main     # fork = autional-demo/marktext，触发 Vercel 生产部署
+# 首次：
+git remote add fork https://github.com/autional-demo/marktext.git
+# 发布：
+git push fork main     # 触发 Vercel 生产部署
 ```
 
 > `origin` 是私有镜像（`jd7438716/marktext-web`），`fork` 是部署源（`autional-demo/marktext`）。
@@ -84,6 +87,6 @@ scripts/       租户创建、SSO 预检、集成测试
 ## 参考
 
 - 在线地址：https://marktext-web.vercel.app
-- 接入细节与运维：`AUTIONAL_SETUP.md`
+- 接入细节与运维：`AUTIONAL_SETUP.md`（含登录失败排查表）
 - 变更与验证记录：`AUTIONAL_CHANGES.md`
 - 项目记录（仓库/部署/时间线）：`PROJECT_NOTES.md`

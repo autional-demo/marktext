@@ -4,7 +4,7 @@
 
 - 框架：Next.js 15（App Router）+ React 19 + TypeScript
 - 身份：Autional，租户 `marktext-web`（`01M6JBFH2T3P7HYR3MSM0SD5MG`）
-- 登录方式：邮箱 + 密码（Skill Phase 2 的默认方案）；SSO 代码保留但默认关闭
+- 登录方式：邮箱 + 密码，以及 **Autional SSO**（OAuth 2.0 授权码 + PKCE，已启用）
 - 数据：浏览器 localStorage，按 userId 命名空间隔离
 
 ## 新增文件
@@ -13,8 +13,10 @@
 |---|---|
 | `app/layout.tsx` | 根布局，挂载 `AuthProvider` |
 | `app/page.tsx` | 工作区入口，未登录跳 `/login` |
-| `app/login/page.tsx` | 登录 / 注册页（含可选 SSO 按钮） |
-| `app/oauth/callback/page.tsx` | SSO 回调处理（启用 appId 后生效） |
+| `app/login/page.tsx` | 登录 / 注册页（含 SSO 按钮） |
+| `app/oauth/callback/page.tsx` | SSO 回调处理 |
+| `app/bff/[...path]/route.ts` | 同源 BFF 代理（转发 identity / oauth） |
+| `app/.well-known/openid-configuration/route.ts` | discovery 同源转发 |
 | `app/globals.css` | 全站样式（含 muya 排版） |
 | `components/auth-provider.tsx` | Autional 会话上下文（init / login / register / logout） |
 | `components/workspace.tsx` | 文档列表 + 工具栏 + 编辑器容器 |
@@ -22,8 +24,11 @@
 | `lib/autional.ts` | 公开配置与常量 |
 | `lib/docs.ts` | 文档持久化（按 userId 命名空间） |
 | `scripts/create-tenant.mjs` | Phase 3 试用租户创建 + 3.1a 自检 |
+| `scripts/check-sso.mjs` | SSO 预检（authorize 302 + CORS 204） |
 | `scripts/integration-test.mjs` | Phase 7 集成测试（8 项） |
-| `scripts/create-oauth-client.mjs` | SSO 客户端创建（受管理员平面限制，未成功） |
+| `scripts/create-oauth-client.mjs` | SSO 客户端创建尝试（实际由管理员平面 API 完成） |
+| `PROJECT_NOTES.md` | 项目记录（仓库/部署/时间线/待办） |
+| `README.md` | 项目说明与发布流程 |
 | `AUTIONAL_SETUP.md` / `AUTIONAL_CHANGES.md` | 交付说明 |
 
 ## 关键实现决策
@@ -65,13 +70,16 @@
 | SSO CORS 预检 | `scripts/check-sso.mjs` | PASS（204 + ACAO） |
 | SSO 完整流程 | authorize → code → token → userinfo | 全 200，email 正确 |
 | 生产代理换票 | `POST /bff/oauth/api/v1/oauth/token` | 200 + access_token |
+| Git 触发部署 | push `main` → Vercel | READY（`githubCommitRef=main`） |
 
 ## 部署信息
 
 - 生产：https://marktext-web.vercel.app
-- Vercel 项目：`marktext-web`（team `jd7438716-gmailcoms-projects`）
+- 部署源：https://github.com/autional-demo/marktext （分支 `main`，GitHub → Vercel 自动部署）
+- 私有镜像：https://github.com/jd7438716/marktext-web
+- Vercel 项目：`marktext-web`（team `jd7438716-gmailcoms-projects`，生产分支 `main`）
 - 环境变量（Production/Preview/Development）：
-  `NEXT_PUBLIC_AUTIONAL_TENANT_ID` / `NEXT_PUBLIC_AUTIONAL_ISSUER` / `NEXT_PUBLIC_AUTIONAL_API_URL=/bff`
+  `NEXT_PUBLIC_AUTIONAL_TENANT_ID` / `NEXT_PUBLIC_AUTIONAL_ISSUER` / `NEXT_PUBLIC_AUTIONAL_API_URL=/bff` / `NEXT_PUBLIC_AUTIONAL_APP_ID`
 - 注：CLI 首次部署误建了同名项目 `marktext`，可在 Vercel 后台删除。
 
 ## 未完成 / 已知限制
@@ -81,5 +89,6 @@
 | 浏览器级 SSO 点击 | 本机浏览器代理不稳定（`ERR_PROXY_CONNECTION_FAILED`），无法完成页面点击验证 | 已用 API 级完整流程替代验证；用户可在网络正常时点一次确认 |
 | 跨设备同步 | 未接入服务端存储 | 数据仅本机浏览器 |
 | 3 个测试账号密码 | 只在交付消息中提供，不写入仓库 | 需要时向交付人索取 |
-| 试用租户残留 | 排查权限时创建了若干空试用租户（`mt-inv-*`、`marktext-web-inv`、`marktext-web-com`） | 需在后台删除；同 IP 试用配额已用尽 |
+| 试用租户残留 | 已清理（9 个空租户全部删除，仅保留 `marktext-web`）；同 IP 试用配额已用尽 | 无 |
+| 测试账号重建 | 管理员重置接口写入方式与登录哈希不一致，已删除重建；`test1` 被风控要求验证码，由 `demo1` 替代 | 使用交付消息中的新账号 |
 | 管理门户 404 | 平台侧 `admin.autional.cn/<slug>/` 返回 404 | 后台操作走 API / 角色激活 |
