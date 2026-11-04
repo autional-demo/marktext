@@ -2,26 +2,27 @@
 /**
  * 本地端到端验证（不接触真实 Autional 账号）。
  *
- * 做法：临时起一个本地 JWKS 端点，用自签 RSA 密钥签发测试 token，
- * 再启动 next start（把 AUTIONAL_ISSUER / AUTIONAL_JWKS_URL 指到本地），
- * 跑完 创建/列表/读取/保存/冲突/删除 全流程后清理数据。
+ * 做法：起一个本地身份服务替身（/identity/api/v1/auth/me），
+ * 启动 next start 并把 AUTIONAL_ME_URL 指过去，跑完
+ * 创建/列表/读取/保存/冲突/删除 全流程后清理数据。
  *
  * 用法：node --env-file=.env.local scripts/e2e-local.mjs
  *
- * 注意：只能验证本地服务。生产环境仍用官方 JWKS，伪造 token 无效。
+ * 注意：只能验证本地服务。生产环境走真实身份服务，伪造 token 无效。
  */
 import { spawn } from "node:child_process";
 import http from "node:http";
-import { generateKeyPairSync } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { SignJWT } from "jose";
 import { neon } from "@neondatabase/serverless";
 
 const PORT = 3100;
-const JWKS_PORT = 4010;
-const ISSUER = `http://127.0.0.1:${JWKS_PORT}`;
+const IDP_PORT = 4010;
 const USER_ID = "e2e-user-0001";
 const TENANT_ID = "e2e-tenant-0001";
 const BASE = `http://127.0.0.1:${PORT}`;
+const ME_PATH = "/identity/api/v1/auth/me";
+const ME_URL = `http://127.0.0.1:${IDP_PORT}${ME_PATH}`;
 
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL 未设置，用 --env-file=.env.local 运行");
@@ -34,37 +35,33 @@ function check(name, ok, detail = "") {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  " + detail : ""}`);
 }
 
-/* 1. 本地 JWKS */
-const { publicKey, privateKey } = generateKeyPairSync("rsa", {
-  modulusLength: 2048,
-});
-const jwk = publicKey.export({ format: "jwk" });
-jwk.kid = "e2e";
-jwk.alg = "RS256";
-jwk.use = "sig";
+/* 1. 本地身份服务替身 */
+const secret = randomBytes(32);
+let expectedToken = "";
 
-const jwksServer = http.createServer((req, res) => {
-  if (req.url === "/.well-known/jwks.json") {
+const idpServer = http.createServer((req, res) => {
+  if (req.url === ME_PATH && req.headers.authorization === `Bearer ${expectedToken}`) {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ keys: [jwk] }));
+    res.end(JSON.stringify({ data: { id: USER_ID } }));
+    return;
+  }
+  if (req.url === ME_PATH) {
+    res.writeHead(401, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "unauthorized" }));
     return;
   }
   res.writeHead(404);
   res.end();
 });
-await new Promise((resolve) => jwksServer.listen(JWKS_PORT, "127.0.0.1", resolve));
-console.log(`JWKS  http://127.0.0.1:${JWKS_PORT}/.well-known/jwks.json`);
+await new Promise((resolve) => idpServer.listen(IDP_PORT, "127.0.0.1", resolve));
+console.log(`IDP   http://127.0.0.1:${IDP_PORT}${ME_PATH}`);
 
 /* 2. 启动 next start */
 const next = spawn(
   process.execPath,
   ["node_modules/next/dist/bin/next", "start", "-p", String(PORT)],
   {
-    env: {
-      ...process.env,
-      AUTIONAL_ISSUER: ISSUER,
-      AUTIONAL_JWKS_URL: `${ISSUER}/.well-known/jwks.json`,
-    },
+    env: { ...process.env, AUTIONAL_ME_URL: ME_URL },
     stdio: ["ignore", "ignore", "pipe"],
   },
 );
@@ -93,7 +90,7 @@ function shutdown() {
     /* ignore */
   }
   try {
-    jwksServer.close();
+    idpServer.close();
   } catch {
     /* ignore */
   }
@@ -107,20 +104,19 @@ try {
   }
   console.log(`next  ${BASE}`);
 
-  const token = await new SignJWT({ tenant_id: TENANT_ID })
-    .setProtectedHeader({ alg: "RS256", kid: "e2e" })
-    .setIssuer(ISSUER)
+  expectedToken = await new SignJWT({ tenant_id: TENANT_ID })
+    .setProtectedHeader({ alg: "HS256" })
     .setSubject(USER_ID)
     .setIssuedAt()
     .setExpirationTime("5m")
-    .sign(privateKey);
+    .sign(secret);
 
   const api = (path, init = {}) =>
     fetch(`${BASE}${path}`, {
       ...init,
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${token}`,
+        authorization: `Bearer ${expectedToken}`,
         ...(init.headers ?? {}),
       },
     });
