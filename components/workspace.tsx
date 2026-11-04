@@ -57,22 +57,60 @@ export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
 
   const docsRef = useRef<Doc[]>([]);
   const tokenRef = useRef<string | null>(null);
+  const tokenPromise = useRef<Promise<string | null> | null>(null);
   const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const cacheTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const getToken = useCallback(async (): Promise<string | null> => {
-    if (tokenRef.current) return tokenRef.current;
-    try {
-      const token = await autional.getAccessToken();
-      tokenRef.current = token;
-      if (!token) setSessionExpired(true);
-      return token;
-    } catch {
-      setSessionExpired(true);
-      return null;
-    }
-  }, [autional]);
+  /**
+   * 取 token。
+   * 不缓存「有效性」——access token 只有 300 秒，交给 SDK 判断过期并刷新。
+   * tokenPromise 单飞：并发请求共用同一次刷新，避免 refresh token 轮换竞态。
+   */
+  const getToken = useCallback(
+    async (force = false): Promise<string | null> => {
+      if (tokenPromise.current) return tokenPromise.current;
+
+      const task = (async () => {
+        const run = async () => {
+          try {
+            if (force) {
+              // 走 SDK 的 ApiClient：它在 401 时会自动刷新并重试（内部有单飞去重）
+              try {
+                await autional.api.get("/identity/api/v1/auth/me");
+              } catch {
+                /* 刷新失败时由下面的 getAccessToken 给出最终结果 */
+              }
+            }
+            const token = await autional.getAccessToken();
+            tokenRef.current = token;
+            setSessionExpired(!token);
+            return token;
+          } catch {
+            tokenRef.current = null;
+            setSessionExpired(true);
+            return null;
+          }
+        };
+
+        // 多标签页共用同一个刷新锁，避免同时拿旧 refresh token 去轮换
+        const locks =
+          typeof navigator !== "undefined"
+            ? (navigator as Navigator & { locks?: LockManager }).locks
+            : undefined;
+
+        return locks ? locks.request("marktext:token", run) : run();
+      })();
+
+      tokenPromise.current = task;
+      try {
+        return await task;
+      } finally {
+        if (tokenPromise.current === task) tokenPromise.current = null;
+      }
+    },
+    [autional],
+  );
 
   const scheduleCache = useCallback(() => {
     if (cacheTimer.current) clearTimeout(cacheTimer.current);
@@ -107,62 +145,66 @@ export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
       const doc = docsRef.current.find((d) => d.id === id);
       if (!doc || doc.loaded === false) return;
 
-      const token = await getToken();
+      let token = await getToken();
       if (!token) {
         setStatus("offline");
         return;
       }
 
       setStatus("saving");
-      try {
-        const saved = await saveDoc(token, id, {
-          title: doc.title,
-          content: doc.content,
-          rev: doc.rev,
-        });
-        updateDoc(id, {
-          rev: saved.rev,
-          updatedAt: toMillis(saved.updatedAt),
-        });
-        setSavedAt(Date.now());
-        setStatus("saved");
-      } catch (err) {
-        if (err instanceof ApiError) {
-          if (err.status === 409) {
-            const server = (err.body as { doc?: Conflict["server"] } | undefined)?.doc;
-            if (server) {
-              setConflict({ id, server });
-              setStatus("conflict");
-              return;
+      const payload = { title: doc.title, content: doc.content, rev: doc.rev };
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const saved = await saveDoc(token, id, payload);
+          updateDoc(id, {
+            rev: saved.rev,
+            updatedAt: toMillis(saved.updatedAt),
+          });
+          setSavedAt(Date.now());
+          setStatus("saved");
+          return;
+        } catch (err) {
+          if (err instanceof ApiError) {
+            if (err.status === 409) {
+              const server = (err.body as { doc?: Conflict["server"] } | undefined)?.doc;
+              if (server) {
+                setConflict({ id, server });
+                setStatus("conflict");
+                return;
+              }
+            }
+            if (err.status === 404) {
+              // 本机新建但服务端还没有：补一次创建
+              try {
+                const created = await createDoc(token, {
+                  id,
+                  title: doc.title,
+                  content: doc.content,
+                });
+                updateDoc(id, {
+                  rev: created.rev,
+                  updatedAt: toMillis(created.updatedAt),
+                });
+                setSavedAt(Date.now());
+                setStatus("saved");
+                return;
+              } catch {
+                /* fallthrough */
+              }
+            }
+            if (err.status === 401 && attempt === 0) {
+              // access token 只有 5 分钟：强制刷新后重试一次
+              const fresh = await getToken(true);
+              if (fresh) {
+                token = fresh;
+                continue;
+              }
             }
           }
-          if (err.status === 404) {
-            // 本机新建但服务端还没有：补一次创建
-            try {
-              const created = await createDoc(token, {
-                id,
-                title: doc.title,
-                content: doc.content,
-              });
-              updateDoc(id, {
-                rev: created.rev,
-                updatedAt: toMillis(created.updatedAt),
-              });
-              setSavedAt(Date.now());
-              setStatus("saved");
-              return;
-            } catch {
-              /* fallthrough */
-            }
-          }
-          if (err.status === 401) {
-            tokenRef.current = null;
-            setSessionExpired(true);
-            setStatus("offline");
-            return;
-          }
+          setStatus("offline");
+          return;
         }
-        setStatus("offline");
       }
     },
     [getToken, updateDoc],
