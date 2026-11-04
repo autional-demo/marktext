@@ -15,12 +15,20 @@ import {
   type User,
 } from "@autional/core";
 import { autionalConfig, AUTIONAL_TENANT_ID } from "@/lib/autional";
+import {
+  ensureToken,
+  installTokenSession,
+  type TokenIssue,
+} from "@/lib/token-session";
 
 interface AuthContextValue {
   autional: Autional;
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** transient：网络/服务不可用；expired/revoked：需要重新登录；config：客户端配置问题 */
+  authIssue: TokenIssue | null;
+  retryAuth: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -29,47 +37,73 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const autional = useMemo(
-    () =>
-      new Autional({
-        appId: autionalConfig.appId,
-        issuer: autionalConfig.issuer,
-        apiUrl: autionalConfig.apiUrl,
-        tenantId: autionalConfig.tenantId,
-        platform: browserPlatform,
-        storagePrefix: autionalConfig.storagePrefix,
-        syncTabs: autionalConfig.syncTabs,
-      }),
-    [],
-  );
+  const autional = useMemo(() => {
+    const instance = new Autional({
+      appId: autionalConfig.appId,
+      issuer: autionalConfig.issuer,
+      apiUrl: autionalConfig.apiUrl,
+      tenantId: autionalConfig.tenantId,
+      platform: browserPlatform,
+      storagePrefix: autionalConfig.storagePrefix,
+      syncTabs: autionalConfig.syncTabs,
+    });
+    installTokenSession(instance);
+    return instance;
+  }, []);
 
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [authIssue, setAuthIssue] = useState<TokenIssue | null>(null);
+
+  const boot = useCallback(
+    async (alive: () => boolean) => {
+      const ensured = await ensureToken(autional);
+      let issue: TokenIssue | null = ensured.ok ? null : ensured.issue;
+
+      try {
+        await autional.initialize();
+      } catch {
+        /* initialize 内部已兜底 */
+      }
+
+      if (autional.isAuthenticated()) issue = null;
+      else if (!issue) issue = "expired";
+
+      if (alive()) {
+        setUser(autional.user);
+        setAuthIssue(issue);
+        setIsLoading(false);
+      }
+    },
+    [autional],
+  );
 
   useEffect(() => {
     let alive = true;
+    const isAlive = () => alive;
+
     const sync = () => {
-      if (alive) setUser(autional.user);
+      if (!alive) return;
+      setUser(autional.user);
+      if (autional.isAuthenticated()) setAuthIssue(null);
     };
 
     const offUser = autional.on("USER_CHANGED", sync);
     const offToken = autional.on("TOKEN_CHANGED", sync);
     const offOut = autional.on("LOGGED_OUT", () => {
-      if (alive) setUser(null);
+      if (alive) {
+        setUser(null);
+        setAuthIssue("expired");
+      }
     });
     const offNone = autional.on("NOT_AUTHENTICATED", () => {
-      if (alive) setUser(null);
+      if (alive) {
+        setUser(null);
+        setAuthIssue("expired");
+      }
     });
 
-    autional
-      .initialize()
-      .catch(() => undefined)
-      .finally(() => {
-        if (alive) {
-          setUser(autional.user);
-          setIsLoading(false);
-        }
-      });
+    void boot(isAlive);
 
     return () => {
       alive = false;
@@ -78,7 +112,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       offOut();
       offNone();
     };
-  }, [autional]);
+  }, [autional, boot]);
+
+  const retryAuth = useCallback(async () => {
+    setIsLoading(true);
+    await boot(() => true);
+  }, [boot]);
 
   const login = useCallback(
     async (email: string, password: string) => {
@@ -88,6 +127,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         tenantId: AUTIONAL_TENANT_ID || undefined,
       });
       setUser(result.user);
+      setAuthIssue(null);
     },
     [autional],
   );
@@ -125,6 +165,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await autional.logout();
     } finally {
       setUser(null);
+      setAuthIssue("expired");
     }
   }, [autional]);
 
@@ -134,11 +175,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       isLoading,
       isAuthenticated: !!user,
+      authIssue,
+      retryAuth,
       login,
       register,
       logout,
     }),
-    [autional, user, isLoading, login, register, logout],
+    [autional, user, isLoading, authIssue, retryAuth, login, register, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

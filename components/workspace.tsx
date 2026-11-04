@@ -20,6 +20,7 @@ import {
   saveDoc,
 } from "@/lib/docs-api";
 import { docPath } from "@/lib/nav";
+import { ensureToken } from "@/lib/token-session";
 
 const SAVE_DELAY = 1200;
 const CACHE_DELAY = 500;
@@ -50,67 +51,56 @@ export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
   const [everSynced, setEverSynced] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
-  const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionIssue, setSessionIssue] = useState<"expired" | "revoked" | null>(null);
   const [editorEpoch, setEditorEpoch] = useState(0);
   const [ready, setReady] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const docsRef = useRef<Doc[]>([]);
-  const tokenRef = useRef<string | null>(null);
-  const tokenPromise = useRef<Promise<string | null> | null>(null);
   const saveTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const cacheTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   /**
-   * 取 token。
-   * 不缓存「有效性」——access token 只有 300 秒，交给 SDK 判断过期并刷新。
-   * tokenPromise 单飞：并发请求共用同一次刷新，避免 refresh token 轮换竞态。
+   * 取 token：统一走 token-session（跨标签锁 + 错误分类）。
+   * - transient/config：只标记离线，不清会话；
+   * - expired/revoked：才显示重新登录横幅。
    */
   const getToken = useCallback(
     async (force = false): Promise<string | null> => {
-      if (tokenPromise.current) return tokenPromise.current;
-
-      const task = (async () => {
-        const run = async () => {
-          try {
-            if (force) {
-              // 走 SDK 的 ApiClient：它在 401 时会自动刷新并重试（内部有单飞去重）
-              try {
-                await autional.api.get("/identity/api/v1/auth/me");
-              } catch {
-                /* 刷新失败时由下面的 getAccessToken 给出最终结果 */
-              }
-            }
-            const token = await autional.getAccessToken();
-            tokenRef.current = token;
-            setSessionExpired(!token);
-            return token;
-          } catch {
-            tokenRef.current = null;
-            setSessionExpired(true);
-            return null;
-          }
-        };
-
-        // 多标签页共用同一个刷新锁，避免同时拿旧 refresh token 去轮换
-        const locks =
-          typeof navigator !== "undefined"
-            ? (navigator as Navigator & { locks?: LockManager }).locks
-            : undefined;
-
-        return locks ? locks.request("marktext:token", run) : run();
-      })();
-
-      tokenPromise.current = task;
-      try {
-        return await task;
-      } finally {
-        if (tokenPromise.current === task) tokenPromise.current = null;
+      const result = await ensureToken(autional, { force });
+      if (result.ok) {
+        setSessionIssue(null);
+        return result.token;
       }
+      if (result.issue === "expired" || result.issue === "revoked") {
+        setSessionIssue(result.issue);
+      } else {
+        setStatus("offline");
+      }
+      return null;
     },
     [autional],
   );
+
+  /* 主动刷新：只在可见且临近过期时触发，避免增加轮换次数 */
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!autional.isAuthenticated()) return;
+      if (autional.tokenManager.needsRefresh(60_000)) {
+        void ensureToken(autional);
+      }
+    };
+    const timer = setInterval(check, 60_000);
+    window.addEventListener("online", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("online", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [autional]);
 
   const scheduleCache = useCallback(() => {
     if (cacheTimer.current) clearTimeout(cacheTimer.current);
@@ -767,9 +757,13 @@ export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
               />
             </header>
 
-            {sessionExpired && (
+            {sessionIssue && (
               <div className="session-bar">
-                <span>登录状态已失效，改动已保存在本机。</span>
+                <span>
+                  {sessionIssue === "revoked"
+                    ? "会话已在其他设备退出，改动已保存在本机。"
+                    : "登录已过期，改动已保存在本机。"}
+                </span>
                 <button onClick={relogin}>重新登录</button>
               </div>
             )}

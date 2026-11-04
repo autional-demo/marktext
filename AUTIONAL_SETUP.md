@@ -156,6 +156,42 @@ NEXT_PUBLIC_AUTIONAL_API_URL=/bff
 NEXT_PUBLIC_AUTIONAL_APP_ID=client-Ost6T4zMRKoh
 ```
 
+## Token 生命周期与刷新
+
+| 项 | 值 |
+|---|---|
+| access token | 300 秒（JWT `exp - iat`） |
+| refresh token | 86400 秒（24 小时） |
+| 轮换 | 每次刷新都会换新 RT；旧 RT 二次使用会触发复用检测 |
+| 复用后果 | identity `40000502` / oauth `invalid_grant`，整族撤销 |
+| 刷新端点 | password：`/identity/api/v1/auth/refresh`；SSO：`/oauth/api/v1/oauth/refresh` |
+
+应用在 SDK 实例创建后接管唯一刷新入口 `refreshSession`（`lib/token-session.ts`）：
+
+- **跨标签锁**：`navigator.locks`（不可用时用 localStorage 租约），抢不到锁 **fail-closed**，不会无锁刷新。
+- **刷新前合并存储**：按 JWT `exp` 单调采纳，AT/RT 成对，避免旧 token 倒退。
+- **错误分类**（未知一律 transient，不清会话）：
+
+| 条件 | 判定 |
+|---|---|
+| `40000502` + reused | revoked（清会话） |
+| `40000502` + revoked/expired | expired（清会话） |
+| `invalid_grant` + reused | revoked |
+| 其他 `invalid_grant` | expired |
+| `invalid_client` | config（不清会话） |
+| 429 / 5xx / 超时 / 未知 4xx | transient（保留会话，退避重试） |
+| 200 但缺 token / 非 JSON | transient |
+
+- **冷启动**：先 `ensureToken`（内部加载存储 + 必要时刷新），再 `initialize`；transient 时门禁显示“离线，可重试”，**不跳登录**。
+- **UX**：只有 expired/revoked 才出现「重新登录」横幅；网络问题显示离线并保留本地内容。
+- **主动刷新**：仅在页面可见且剩余 ≤60s 时触发，不做高频轮询。
+
+单测与真实服务验证：
+
+```bash
+npm run test:token   # 分类 / 并发单飞 / 断网 / 复用
+```
+
 ## 数据隔离
 
 - 文档按 `marktext-web:user:<userId>:docs` 命名空间存放于浏览器 localStorage。

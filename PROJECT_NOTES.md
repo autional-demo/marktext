@@ -107,6 +107,8 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 生产 `/bff` 代理换票 | 200 |
 | 生产页面 | 200 |
 | 生产密码登录 | 200（管理员与测试账号） |
+| Token 刷新单测 | `npm run test:token` 10/10 |
+| 真实刷新链路 | 过期 → 刷新成功（新 AT exp≈300s）；断网 → transient 且保留 RT；恢复 → 成功 |
 | Git 触发部署 | 多次 READY（`githubCommitRef=main`） |
 | 文档云同步（本地 E2E） | 13/13（`scripts/e2e-local.mjs`，含 401/创建/列表/读取/保存/409/密文/删除） |
 | 字段加密 | 库内为 `v1:` 密文；AAD 绑定租户+用户+文档+字段；篡改拒绝 |
@@ -158,6 +160,7 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 2026-11-04 | 发布到 GitHub，Vercel 改为 Git 联动 |
 | 2026-11-04 | README 补在线地址；新增 `PROJECT_NOTES.md` |
 | 2026-11-04 | 清理 9 个空试用租户；重建测试账号（`demo1` 替代 `test1`） |
+| 2026-11-04 | Token 刷新加固：接管 SDK 刷新入口、跨标签锁、错误分类、离线门禁 |
 | 2026-11-04 | 接入 Neon Postgres：`/api/docs`、字段加密、本地优先同步 |
 | 2026-11-04 | 修复三个上线阻塞：函数区域、`iss` 校验、JWKS 不适用 |
 | 2026-11-04 | 上线笔记独立 URL（`/d/[id]`）与 PWA |

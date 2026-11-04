@@ -40,6 +40,28 @@
 5. **同源 `/bff` 代理**：Autional identity API 的 CORS 白名单不含新域名，浏览器直连会在预检被拒；由 Next.js 路由转发到 `api.autional.cn/bff`，discovery 也走同源。
 6. **SSO 用独立应用客户端**：`client-Ost6T4zMRKoh`（kind=app，公开 + PKCE），回调与 CORS 同时覆盖生产与本地。试用租户是 member，先用 `role-activations` 临时激活 admin（1h）拿到管理员平面令牌，再建客户端。
 
+## Token 刷新加固（2026-11-04）
+
+问题：登录后不久误报「登录状态已失效」。排查确认不是缺 RT，而是**刷新失败被当成会话失效**，且多标签刷新存在竞态。
+
+改动：
+
+| 文件 | 内容 |
+|---|---|
+| `lib/token-session.ts`（新增） | 运行时接管 SDK 唯一刷新入口 `refreshSession`：跨标签锁（Web Locks + 租约兜底，fail-closed）、按 exp 单调合并存储、错误允许清单、写后读校验、广播 |
+| `components/auth-provider.tsx` | 注入刷新模块；`authIssue`（transient/expired/revoked/config）与 `retryAuth`；先 `ensureToken` 再 `initialize` |
+| `components/app-gate.tsx` | transient/config 不跳登录，显示可重试的离线页 |
+| `components/workspace.tsx` | 统一走 `ensureToken`；401 强制刷新重试；横幅只在 expired/revoked 出现；可见时临近过期才主动刷新 |
+| `scripts/token-session.test.ts` | 分类、并发单飞、断网、复用 共 10 项 |
+
+验证：
+
+- `npm run test:token` → 10/10
+- 真实身份服务：过期 → 刷新成功（新 AT exp≈300s）；断网 → transient 且 **保留 RT**；恢复 → 成功
+- `npm run build` 通过
+
+未采用 `patch-package`：改为在实例上覆盖同一个公开入口（`refreshSession`），覆盖 initialize / getAccessToken / ApiClient 三条路径；SDK 升级时需重跑上述测试。
+
 ## 数据隔离结论（Skill 1.6）
 
 ```
