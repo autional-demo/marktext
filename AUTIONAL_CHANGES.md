@@ -33,6 +33,7 @@
 3. **编辑器事件挂在 document**：Muya 会替换/重建宿主节点，挂在宿主上的监听器会随节点失效；改为 document 捕获 + `root.contains(target)` 过滤。
 4. **StrictMode 关闭**：避免开发期双挂载导致编辑器实例竞争（生产不受影响）。
 5. **同源 `/bff` 代理**：Autional identity API 的 CORS 白名单不含新域名，浏览器直连会在预检被拒；由 Next.js 路由转发到 `api.autional.cn/bff`，discovery 也走同源。
+6. **SSO 用独立应用客户端**：`client-Ost6T4zMRKoh`（kind=app，公开 + PKCE），回调与 CORS 同时覆盖生产与本地。试用租户是 member，先用 `role-activations` 临时激活 admin（1h）拿到管理员平面令牌，再建客户端。
 
 ## 数据隔离结论（Skill 1.6）
 
@@ -60,6 +61,10 @@
 | 生产配置注入 | 构建产物含 tenantId | 通过 |
 | 生产代理 | `GET /bff/.../auth-config/{tenantId}` | 200 |
 | 生产登录 | `POST /bff/identity/api/v1/auth/login` | 200 + access_token |
+| SSO authorize 预检 | `scripts/check-sso.mjs` | PASS（302 回指回调） |
+| SSO CORS 预检 | `scripts/check-sso.mjs` | PASS（204 + ACAO） |
+| SSO 完整流程 | authorize → code → token → userinfo | 全 200，email 正确 |
+| 生产代理换票 | `POST /bff/oauth/api/v1/oauth/token` | 200 + access_token |
 
 ## 部署信息
 
@@ -73,7 +78,8 @@
 
 | 项 | 原因 | 影响 |
 |---|---|---|
-| SSO 登录 | 管理平面令牌无法由密码登录获得；管理 API 返回 403 `40000503` | 登录页默认隐藏 SSO；按 `AUTIONAL_SETUP.md` 在后台建客户端后可开启 |
+| 浏览器级 SSO 点击 | 本机浏览器代理不稳定（`ERR_PROXY_CONNECTION_FAILED`），无法完成页面点击验证 | 已用 API 级完整流程替代验证；用户可在网络正常时点一次确认 |
 | 跨设备同步 | 未接入服务端存储 | 数据仅本机浏览器 |
 | 3 个测试账号密码 | 明文仅出现在交付消息与 `AUTIONAL_SETUP.md` | 生产请替换 |
-| 管理门户 404 | 平台侧 `admin.autional.cn/<slug>/` 返回 404 | 后台操作需先解决平台路由 |
+| 试用租户残留 | 排查权限时创建了若干空试用租户（`mt-inv-*`、`marktext-web-inv`、`marktext-web-com`） | 需在后台删除；同 IP 试用配额已用尽 |
+| 管理门户 404 | 平台侧 `admin.autional.cn/<slug>/` 返回 404 | 后台操作走 API / 角色激活 |

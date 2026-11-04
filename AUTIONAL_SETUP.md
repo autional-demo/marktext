@@ -71,29 +71,55 @@ NEXT_PUBLIC_AUTIONAL_AUTHORIZE_URL=https://auth.autional.cn/oauth/api/v1/oauth/a
   因为 `@autional/core@0.4.1` 的 `register()` 发送 `tenantId`，会被服务端拒绝。
 - 会话：SDK 管理 token；401 时自动刷新；多 Tab 通过 `syncTabs` 同步。
 
-## SSO（可选，未启用）
+## SSO（已启用）
 
-Skill 的 SSO 路径需要独立应用客户端（`client_id` + 回调 + CORS）。当前无法通过 API 创建：
+| 项 | 值 |
+|---|---|
+| appId | `client-Ost6T4zMRKoh` |
+| 类型 | 应用客户端（`kind=app`，公开客户端，PKCE，无 secret 认证） |
+| 回调 | `https://marktext-web.vercel.app/oauth/callback`、`http://localhost:3000/oauth/callback`、`http://127.0.0.1:3000/oauth/callback` |
+| CORS 源 | 上述三个 origin（无路径、无尾斜杠） |
+| 授权入口 | `https://auth.autional.cn/oauth/api/v1/oauth/authorize` |
+| Scope | `openid profile email offline_access` |
 
-- 管理接口 `/oauth/api/v1/admin/oauth/clients` 要求 `X-Entry-Plane: admin` 的令牌；
-- 邮箱密码登录得到的是 `entry_plane: "api"` 的令牌，网关返回 `403 40000503`；
-- 管理员平面令牌只能由管理门户 OAuth 流程签发。
+登录页显示「使用 Autional SSO 登录」；点击后跳授权页，回调走 `/oauth/callback`。
 
-启用步骤（需要在管理后台手工完成）：
+### 实测结果
 
-1. 打开 `https://admin.autional.cn/marktext-web/oauth-clients`，新建应用：
-   - 回调：`https://<你的域名>/oauth/callback`
-   - CORS：`https://<你的域名>`（无路径、无尾斜杠）
-   - 网站：`https://<你的域名>`
-   - 公开客户端（`isConfidential: false`，`clientAuthMethods: ["none"]`）
-2. 把拿到的 `client_id` 写入 `NEXT_PUBLIC_AUTIONAL_APP_ID`。
-3. 重新构建/部署；登录页会出现「使用 Autional SSO 登录」。
-4. 预检：
+| 检查 | 结果 |
+|---|---|
+| authorize 预检 | `302`，回指回调并带 `error=login_required` |
+| CORS 预检 | `204`，`Access-Control-Allow-Origin: https://marktext-web.vercel.app` |
+| 完整授权码流程 | authorize(带用户令牌) → `code` → token `200` → userinfo `200`（email 正确） |
+| 生产 `/bff` 代理换票 | `200`，返回 access_token |
+
+### 开通方式（可复现）
+
+试用租户的成员角色是 `member`，管理员接口返回 `403 40000503`。用平台自带的**角色激活**临时提权：
+
+1. 申请管理员角色（立即生效，默认到期自动失效）：
    ```bash
-   curl -sS -o /dev/null -w "%{http_code} %{redirect_url}\n" -H "Accept: application/json" \
-     "https://api.autional.cn/oauth/api/v1/oauth/authorize?response_type=code&client_id=$APP_ID&redirect_uri=$(node -p 'encodeURIComponent(process.env.CB)')&scope=openid&state=preflight&code_challenge=mR_nE7EeJopQmji77eZUdD4_rLzw5A5HdlRSiLQQCzU&code_challenge_method=S256"
+   POST /identity/api/v1/auth/me/role-activations
+   { "role_id": "01M6JBFH36MH3KFESGM6V5TBR3", "duration": "1h", "justification": "..." }
    ```
-   期望 `302` 且回跳到你的回调、带 `error=login_required`。
+   （`admin` / `super_admin` 的 role_id 可从 `/auth/me/role-activations/available-roles` 获取）
+2. 用 `X-Entry-Plane: admin` 重新登录，获得管理员平面令牌。
+3. 调 `POST /oauth/api/v1/admin/oauth/clients` 建应用客户端（带回调与 CORS）。
+4. 角色激活 1 小时后自动过期；本次已用毕（客户端已建）。
+
+> 注意：`client-YqzCy3ZOwQur` 是租户 **portal** 客户端（`kind=portal`），
+> 唯一回调是 `https://auth.autional.cn/oauth/callback`，**不能**当应用 appId 用。
+
+### 预检命令
+
+```bash
+APP_ID=client-Ost6T4zMRKoh \
+CALLBACK=https://marktext-web.vercel.app/oauth/callback \
+ORIGIN=https://marktext-web.vercel.app \
+node scripts/check-sso.mjs
+```
+
+期望两项都 PASS：authorize 302 回指回调；CORS 204 且 ACAO = 源。
 
 ## 启动 / 部署
 
