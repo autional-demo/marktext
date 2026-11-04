@@ -1,0 +1,29 @@
+{
+  "name": "marktext-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@autional/api-identity": "^0.4.1",
+    "@autional/core": "^0.4.1",
+    "@autional/next": "^0.4.0",
+    "@autional/react": "^0.3.1",
+    "@muyajs/core": "^0.2.0",
+    "next": "^15.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@autional/api-oauth": "^0.6.1",
+    "@autional/node": "^0.3.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "typescript": "^5.7.0"
+  }
+}
