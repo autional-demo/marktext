@@ -42,11 +42,19 @@ npm run build
 npm start
 ```
 
-## 部署到 Vercel
+## 发布流程（GitHub → Vercel）
+
+| 项 | 值 |
+|---|---|
+| GitHub | https://github.com/autional-demo/marktext （公开，分支 `main`） |
+| Vercel 项目 | `marktext-web`（已绑定该仓库，生产分支 `main`） |
+| 自动部署 | push 到 `main` → 生产部署；其他分支 → Preview |
 
 ```bash
-npx vercel --prod
+git push origin main   # 触发 Vercel 生产部署
 ```
+
+CLI 仅作兜底：`npx vercel --prod`。
 
 生产环境变量：
 

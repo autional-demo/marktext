@@ -123,6 +123,12 @@ npm run dev            # http://localhost:3000
 npm run build && npm start
 ```
 
+### 发布（GitHub → Vercel）
+
+- GitHub：`https://github.com/autional-demo/marktext`，生产分支 `main`
+- Vercel 项目 `marktext-web` 已与该仓库联动；push 到 `main` 即自动部署
+- CLI 兜底：`npx vercel --prod`
+
 Vercel 环境变量（Production）：
 
 ```
