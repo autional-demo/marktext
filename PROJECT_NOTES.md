@@ -140,6 +140,7 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | PWA 图标为 SVG | Chrome 通常接受 `sizes: any`；若安装按钮不出现，需补 192/512 PNG |
 | 离线删除不排队 | 断网时删除只改本机，恢复后可能被云端记录“复活” |
 | 令牌被吊销 | 服务端返回 `40000502 refresh token has been revoked` 时 SDK 不自动登出，已加提示条与一键重登 |
+| access token 仅 300 秒 | JWT `exp - iat = 300`，但响应里的 `expires_in` 是 600；SDK 按 JWT exp 刷新。业务代码不要自行缓存 token |
 | 云同步 | 已接入 Neon Postgres（ap-southeast-1）；localStorage 仅作本地缓存与离线兜底 |
 | 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除，仅保留 `marktext-web`） |
 | 测试账号 | `marktext.test1` 因风控验证码已删除，由 `marktext.demo1` 替代；密码见交付消息 |
