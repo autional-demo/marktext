@@ -15,7 +15,6 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const preferredRegion = "sin1";
 
 /** 列表：只返回元数据，正文按需拉取。 */
 export async function GET(req: NextRequest) {

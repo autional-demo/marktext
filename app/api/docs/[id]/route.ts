@@ -13,7 +13,6 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const preferredRegion = "sin1";
 
 type Ctx = { params: Promise<{ id: string }> };
 
