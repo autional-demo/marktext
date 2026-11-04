@@ -4,6 +4,8 @@
 
 > MarkText 本身是 Electron 桌面应用，无法直接部署到 Vercel。本项目用同一编辑器内核构建 web 版本，再部署到 Vercel。
 
+**在线体验：https://marktext-web.vercel.app** · **代码仓库：https://github.com/autional-demo/marktext**（分支 `main`）
+
 ## 功能
 
 - CommonMark + GFM：标题、列表、任务列表、表格、代码块、引用、脚注
@@ -51,8 +53,11 @@ npm start
 | 自动部署 | push 到 `main` → 生产部署；其他分支 → Preview |
 
 ```bash
-git push origin main   # 触发 Vercel 生产部署
+git push fork main     # fork = autional-demo/marktext，触发 Vercel 生产部署
 ```
+
+> `origin` 是私有镜像（`jd7438716/marktext-web`），`fork` 是部署源（`autional-demo/marktext`）。
+> 只推 `origin` 不会触发部署。
 
 CLI 仅作兜底：`npx vercel --prod`。
 
@@ -61,19 +66,24 @@ CLI 仅作兜底：`npx vercel --prod`。
 ```
 NEXT_PUBLIC_AUTIONAL_TENANT_ID=01M6JBFH2T3P7HYR3MSM0SD5MG
 NEXT_PUBLIC_AUTIONAL_ISSUER=https://api.autional.cn
-NEXT_PUBLIC_AUTIONAL_API_URL=https://api.autional.cn/bff
+NEXT_PUBLIC_AUTIONAL_API_URL=/bff
+NEXT_PUBLIC_AUTIONAL_APP_ID=client-Ost6T4zMRKoh
 ```
+
+> `NEXT_PUBLIC_*` 会打进前端产物，不要放密钥。
 
 ## 目录
 
 ```
-app/           路由（/、/login、/oauth/callback）
+app/           路由（/、/login、/oauth/callback、/bff 代理）
 components/    认证上下文、工作区、编辑器
 lib/           Autional 配置、文档存储
-scripts/       租户创建、集成测试
+scripts/       租户创建、SSO 预检、集成测试
 ```
 
 ## 参考
 
+- 在线地址：https://marktext-web.vercel.app
 - 接入细节与运维：`AUTIONAL_SETUP.md`
 - 变更与验证记录：`AUTIONAL_CHANGES.md`
+- 项目记录（仓库/部署/时间线）：`PROJECT_NOTES.md`
