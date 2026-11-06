@@ -11,3 +11,6 @@ next-env.d.ts
 .vercel
 .tmp/
 .tmp*
+
+# butler2 process artifacts (refs index / runtime)
+butler/
