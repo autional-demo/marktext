@@ -17,7 +17,7 @@
 | 生产地址 | https://marktext-web.vercel.app |
 | 部署源仓库 | https://github.com/autional-demo/marktext （分支 `main`） |
 | 本地 remote | `origin`（同一仓库） |
-| Vercel 项目 | `marktext-web`（team `jd7438716-gmailcoms-projects`） |
+| Vercel 项目 | `marktext-web`（team `见交付消息的 team`） |
 | 生产分支 | `main` |
 | 自动部署 | push 到 `main` → Vercel 生产；其他分支 → Preview |
 | 归档分支 | `feature/autional` |

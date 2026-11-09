@@ -98,7 +98,7 @@
 
 - 生产：https://marktext-web.vercel.app
 - 部署源：https://github.com/autional-demo/marktext （分支 `main`，GitHub → Vercel 自动部署）
-- Vercel 项目：`marktext-web`（team `jd7438716-gmailcoms-projects`，生产分支 `main`）
+- Vercel 项目：`marktext-web`（team `见交付消息的 team`，生产分支 `main`）
 - 环境变量（Production/Preview/Development）：
   `NEXT_PUBLIC_AUTIONAL_TENANT_ID` / `NEXT_PUBLIC_AUTIONAL_ISSUER` / `NEXT_PUBLIC_AUTIONAL_API_URL=/bff` / `NEXT_PUBLIC_AUTIONAL_APP_ID`
 - 注：CLI 首次部署误建了同名项目 `marktext`，可在 Vercel 后台删除。
