@@ -14,3 +14,8 @@ next-env.d.ts
 
 # butler2 process artifacts (refs index / runtime)
 butler/
+.refs/
+
+# 本地构建产物（交叉编译的服务二进制/中间 dist）
+dist/
+build-*/
