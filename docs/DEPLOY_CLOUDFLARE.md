@@ -20,6 +20,26 @@
 | SSO 登录 | ⏳ 缺回调登记（见 §6） |
 | 云同步读写 | ⏳ 配置已就绪，缺一次真实登录端到端验收 |
 
+### 1.1 现状核对（2026-11-23，外部实测）
+
+| 检查项 | 实测结果 | 含义 |
+|---|---|---|
+| `GET /` | 200 | 镜像在线 |
+| `GET /sw.js` | 200，`const VERSION = "v1"`，不含 `BUILD_ID_PATTERN` | **前端是旧版**（缺本轮 PWA/缓存改造） |
+| `GET /manifest.webmanifest` | 200，icons 只有 `/icon.svg` | 同上，缺 192/512/maskable |
+| `GET /api/docs` | 401 | 鉴权链路通、路由可达（未带 token 应 401） |
+| Worker Secret / OAuth 回调 | **未能复核** | 本机无 Cloudflare 凭据（无 `CLOUDFLARE_API_TOKEN`、无 `~/.wrangler`），需在有凭据的机器上跑 `npx wrangler secret list --name marktext` 确认 |
+
+结论：**镜像需要重建才能与主站一致**。另外本文档 §6 记录的“SSO 回调未登记”如仍未补齐，
+镜像上的 SSO 依旧不可用；Secret 是否都在，以上面 `wrangler secret list` 的实测为准
+（`PROJECT_NOTES` 早期“缺 Secret 导致 500”的说法已过时，2026-11-23 本次核对不再以此为准）。
+
+重建命令（有凭据时）：
+
+```bash
+npm run cf:build && npm run cf:deploy     # 或 npx wrangler deploy
+```
+
 | 项 | 值 |
 |---|---|
 | 线上地址 | https://marktext.denglu.dev |

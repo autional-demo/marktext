@@ -132,6 +132,10 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 增量同步 | PATCH 缺字段 400、旧 rev 409（未接真实库，见待办） |
 | 静默更新/提醒 | 注入 remoteRev：旧版本提示条 → 输入字符后升级为冲突条 + 侧栏红点 |
 | 离线工作区 | 断网重载：500 篇 + 编辑器 + 离线状态完整恢复 |
+| 真实库 E2E | **19/19**（需 `DATABASE_URL` / `CONTENT_ENCRYPTION_KEY`，本机用 gitignored 的本地 secrets 文件注入，不入库） |
+| 生产部署 | GitHub commit status：Vercel `Deployment has completed`（commit `43cf24fd`，2026-11-23 09:09 UTC） |
+| 生产资源实测 | `/sw.js` = `v3`、manifest 含 192/512/maskable、`/offline.html` 200、`/api/docs` 与 PATCH 均 401 |
+| CI | 新增 `.github/workflows/ci.yml`（单测 + 构建）；本地验证无 `.env.local` 也能构建 |
 
 ## 7. 关键决策
 
@@ -170,12 +174,13 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除，仅保留 `marktext-web`） |
 | 测试账号 | `marktext.test1` 因风控验证码已删除，由 `marktext.demo1` 替代；密码见交付消息 |
 | 管理门户 404 | `admin.autional.cn/<slug>/` 平台侧返回 404 |
-| Cloudflare 镜像的半成品状态 | `marktext.denglu.dev` 已上线，但 Worker 缺 `DATABASE_URL`/`CONTENT_ENCRYPTION_KEY` Secret（云同步 500），且 OAuth 回调未登记（SSO 400）；详见 `docs/DEPLOY_CLOUDFLARE.md` |
+| Cloudflare 镜像落后于主站 | 2026-11-23 外部实测：`marktext.denglu.dev` 仍跑旧前端（`/sw.js` = `VERSION="v1"`、manifest 只有 `/icon.svg`）；`/api/docs` 返回 401（鉴权链路通）。Worker Secret 与 OAuth 回调本机无 Cloudflare 凭据、**未复核**，以 `npx wrangler secret list --name marktext` 为准；前端改动需 `npm run cf:build && npm run cf:deploy` 重建。详见 `docs/DEPLOY_CLOUDFLARE.md` §1.1 |
 | fork 默认分支 | 仍为 `develop`；如需访客直达应用代码，可改为 `main` |
 | 构建号只在静态页 | SW 从 `/`、`/login` 静态页 HTML 的 `<!--buildId-->` 取版本；`/d/[id]` 是动态页没有该标记。安装预缓存与访问首页都会刷新，实际够用 |
-| 真实库上的增量同步未回归 | PATCH 用例已写进 `scripts/e2e-local.mjs`，但本机缺 `DATABASE_URL` 未执行；上线后需跑一次 |
+| 真实库上的增量同步 | 已回归（2026-11-23）：`e2e-local.mjs` 19/19，覆盖 PATCH 只改标题/只改正文/空字段 400/旧 rev 409/密文断言 |
 | 远程正文按需拉取 | 列表只回元数据；离线时看到的是本机版本，联网后才会提示/静默更新 |
 | 冲突粒度是整篇 | 没有 Markdown 三方合并；冲突时只能整篇「载入云端」或「用本机覆盖」 |
+| 老用户首次升级会有一次提示 | 旧 SW(v1) 是立即接管，新版本改为等待确认，页面会弹一次「新版本已就绪 → 刷新」，点一次即可（预期行为） |
 | 首屏仍有一个后台请求 | 打开时只读本地、不阻塞渲染；但随后会发一次列表请求检查更新（失败即静默离线） |
 | Cloudflare 镜像需重建 | 本地改了前端后，镜像要重新 `npm run cf:build && npm run cf:deploy`，否则仍是旧前端 |
 
@@ -202,6 +207,8 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 2026-11-23 | 数据层：IndexedDB 缓存 + 旧数据迁移；`PATCH` 增量同步；侧栏虚拟列表 |
 | 2026-11-23 | 本地优先：乐观登录、恢复上次打开的文档、差量合并、静默更新 + 旧版本提醒/冲突升级 |
 | 2026-11-23 | 单测补齐：`test:merge`(10) / `test:boot`(8) / `test:token`(10)，共计 28 项全绿 |
+| 2026-11-23 | 提交推送 `05c9ebf9` / `43cf24fd`；Vercel 生产部署成功（commit status: Deployment has completed） |
+| 2026-11-23 | 真实库端到端回归 19/19（含增量保存 PATCH）；新增 GitHub Actions CI（单测 + 构建） |
 
 ## 10. 凭据
 
