@@ -106,6 +106,98 @@ export async function PUT(req: NextRequest, ctx: Ctx) {
   }
 }
 
+/**
+ * 增量保存（只更新请求里出现的字段）。
+ * 典型场景：只改标题时不再把整个正文重新加密上传。
+ * 并发语义与 PUT 一致：带 rev 就做乐观校验，rev 不匹配返回 409 + 云端版本。
+ */
+export async function PATCH(req: NextRequest, ctx: Ctx) {
+  try {
+    const caller = await requireCaller(req);
+    const id = parseDocId((await ctx.params).id);
+    const body = (await req.json()) as Record<string, unknown>;
+
+    const hasTitle = typeof body.title === "string";
+    const hasContent = typeof body.content === "string";
+    if (!hasTitle && !hasContent) {
+      return Response.json({ error: "没有需要更新的字段" }, { status: 400 });
+    }
+
+    const sql = db();
+
+    const current = (await sql`
+      select id, title, content, rev, created_at, updated_at
+      from documents
+      where id = ${id}
+        and tenant_id = ${caller.tenantId}
+        and user_id = ${caller.userId}
+        and deleted_at is null
+      limit 1
+    `) as unknown as DocumentRow[];
+
+    if (current.length === 0) {
+      return Response.json({ error: "文档不存在" }, { status: 404 });
+    }
+
+    // 未提供的字段保留库里的密文原样，避免「解出来再加密」的额外风险
+    const title = hasTitle
+      ? sealTitle(caller, id, parseTitle(body.title))
+      : current[0].title;
+    const content = hasContent
+      ? sealContent(caller, id, parseContent(body.content))
+      : current[0].content;
+
+    const hasRev =
+      typeof body.rev === "number" && Number.isInteger(body.rev) && body.rev >= 0;
+
+    const rows = (hasRev
+      ? await sql`
+          update documents
+          set title = ${title}, content = ${content}, rev = rev + 1, updated_at = now()
+          where id = ${id}
+            and tenant_id = ${caller.tenantId}
+            and user_id = ${caller.userId}
+            and deleted_at is null
+            and rev = ${body.rev as number}
+          returning id, title, content, rev, created_at, updated_at
+        `
+      : await sql`
+          update documents
+          set title = ${title}, content = ${content}, rev = rev + 1, updated_at = now()
+          where id = ${id}
+            and tenant_id = ${caller.tenantId}
+            and user_id = ${caller.userId}
+            and deleted_at is null
+          returning id, title, content, rev, created_at, updated_at
+        `) as unknown as DocumentRow[];
+
+    if (rows.length > 0) {
+      return Response.json({ doc: toDoc(rows[0], caller) });
+    }
+
+    const latest = (await sql`
+      select id, title, content, rev, created_at, updated_at
+      from documents
+      where id = ${id}
+        and tenant_id = ${caller.tenantId}
+        and user_id = ${caller.userId}
+        and deleted_at is null
+      limit 1
+    `) as unknown as DocumentRow[];
+
+    if (latest.length === 0) {
+      return Response.json({ error: "文档不存在" }, { status: 404 });
+    }
+
+    return Response.json(
+      { error: "版本冲突", doc: toDoc(latest[0], caller) },
+      { status: 409 },
+    );
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
 /** 软删除，保留 rev 递增，便于其它设备感知。 */
 export async function DELETE(req: NextRequest, ctx: Ctx) {
   try {

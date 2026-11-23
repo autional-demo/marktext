@@ -92,6 +92,22 @@ export async function saveDoc(
   return data.doc;
 }
 
+/**
+ * 增量保存：只传变化的字段。
+ * 只改标题时不再把整篇正文加密上传（大文档最明显）。
+ */
+export async function patchDoc(
+  token: string,
+  id: string,
+  patch: { title?: string; content?: string; rev?: number },
+): Promise<ApiDoc> {
+  const data = await call<{ doc: ApiDoc }>(token, `/api/docs/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+  return data.doc;
+}
+
 export async function removeDoc(token: string, id: string): Promise<void> {
   await call<{ ok: true }>(token, `/api/docs/${encodeURIComponent(id)}`, {
     method: "DELETE",

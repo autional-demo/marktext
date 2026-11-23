@@ -7,6 +7,8 @@ interface EditorProps {
   docId: string;
   initialContent: string;
   onChange: (docId: string, markdown: string) => void;
+  /** 焦点变化：用于判断「能不能在后台静默替换正文」 */
+  onFocusChange?: (focused: boolean) => void;
 }
 
 let pluginsRegistered = false;
@@ -70,12 +72,19 @@ function registerPlugins(core: any) {
   }
 }
 
-export default function Editor({ docId, initialContent, onChange }: EditorProps) {
+export default function Editor({
+  docId,
+  initialContent,
+  onChange,
+  onFocusChange,
+}: EditorProps) {
   // Callback ref: the editor is remounted per document, so keep the live host
   // node in state and let the effect follow it.
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onFocusChangeRef = useRef(onFocusChange);
+  onFocusChangeRef.current = onFocusChange;
 
   useEffect(() => {
     if (!host) return;
@@ -162,9 +171,27 @@ export default function Editor({ docId, initialContent, onChange }: EditorProps)
         const target = event.target as Node | null;
         if (target && root.contains(target)) flush();
       };
+      // 焦点进出编辑器：静默替换正文前要先确认用户没在编辑
+      const onFocusIn = (event: Event) => {
+        const target = event.target as Node | null;
+        if (target && root.contains(target)) onFocusChangeRef.current?.(true);
+      };
+      const onAnyBlur = (event: Event) => {
+        const target = event.target as Node | null;
+        if (!target || !root.contains(target)) return;
+        // 焦点可能只是移到编辑器内另一个节点，下一帧再确认
+        window.setTimeout(() => {
+          const active = document.activeElement;
+          if (!active || !root.contains(active)) onFocusChangeRef.current?.(false);
+        }, 0);
+      };
+      document.addEventListener("focusin", onFocusIn, true);
+      document.addEventListener("focusout", onAnyBlur, true);
       document.addEventListener("input", onAnyInput, true);
       document.addEventListener("focusout", onAnyFocusOut, true);
       detach = () => {
+        document.removeEventListener("focusin", onFocusIn, true);
+        document.removeEventListener("focusout", onAnyBlur, true);
         document.removeEventListener("input", onAnyInput, true);
         document.removeEventListener("focusout", onAnyFocusOut, true);
       };

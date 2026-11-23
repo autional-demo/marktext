@@ -1,17 +1,28 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useAuth } from "./auth-provider";
-import Workspace from "./workspace";
+import { Splash, Spinner } from "./loading";
 
-function Splash({ text }: { text: string }) {
-  return (
-    <div className="splash">
-      <div className="splash-logo">M↓</div>
-      <p>{text}</p>
-    </div>
-  );
+/**
+ * 工作区（编辑器 + 侧栏，库里还带 muya 内核）体积远大于登录门禁本身，
+ * 拆成异步 chunk：未登录用户不再为编辑器付费，登录后再按需下载。
+ */
+const Workspace = dynamic(() => import("./workspace"), {
+  ssr: false,
+  loading: () => <Splash text="正在准备编辑器…" detail="首次加载会下载编辑器内核，之后走缓存。" />,
+});
+
+/** 首屏慢的时候给一句解释，别让转圈变成「是不是卡死了」。 */
+function useSlowHint(delay = 3000): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), delay);
+    return () => window.clearTimeout(timer);
+  }, [delay]);
+  return slow;
 }
 
 function RetrySplash({
@@ -21,14 +32,26 @@ function RetrySplash({
   text: string;
   onRetry: () => void;
 }) {
+  const [retrying, setRetrying] = useState(false);
   return (
-    <div className="splash">
-      <div className="splash-logo">M↓</div>
-      <p>{text}</p>
-      <button className="primary" onClick={onRetry}>
-        重试
+    <Splash text={text}>
+      <button
+        className="primary"
+        disabled={retrying}
+        onClick={() => {
+          setRetrying(true);
+          void Promise.resolve(onRetry()).finally(() => setRetrying(false));
+        }}
+      >
+        {retrying ? (
+          <>
+            <Spinner size={12} /> 正在重试…
+          </>
+        ) : (
+          "重试"
+        )}
       </button>
-    </div>
+    </Splash>
   );
 }
 
@@ -42,6 +65,7 @@ export default function AppGate({ initialDocId }: { initialDocId?: string }) {
     retryAuth,
   } = useAuth();
   const router = useRouter();
+  const slowHint = useSlowHint();
 
   useEffect(() => {
     if (isLoading) return;
@@ -56,7 +80,14 @@ export default function AppGate({ initialDocId }: { initialDocId?: string }) {
     );
   }, [isLoading, isAuthenticated, authIssue, router]);
 
-  if (isLoading) return <Splash text="正在加载会话…" />;
+  if (isLoading) {
+    return (
+      <Splash
+        text="正在加载会话…"
+        detail={slowHint ? "认证服务响应较慢，正在重试；本机内容不会丢失。" : undefined}
+      />
+    );
+  }
 
   if (!isAuthenticated) {
     if (authIssue === "transient") {

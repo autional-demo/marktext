@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { rememberNext, safeNext } from "@/lib/nav";
 import { AUTHORIZE_URL, SSO_ENABLED, callbackUri } from "@/lib/autional";
+import { Spinner } from "@/components/loading";
 
 type Mode = "login" | "register";
 
@@ -122,11 +123,15 @@ export default function LoginPage() {
           </label>
 
           <button type="submit" className="sso-button" disabled={busy}>
-            {busy
-              ? "正在处理…"
-              : mode === "login"
-                ? "登录 MarkText Web"
-                : "创建账号并登录"}
+            {busy ? (
+              <>
+                <Spinner size={13} /> 正在处理…
+              </>
+            ) : mode === "login" ? (
+              "登录 MarkText Web"
+            ) : (
+              "创建账号并登录"
+            )}
           </button>
         </form>
 

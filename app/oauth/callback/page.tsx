@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
+import { Spinner } from "@/components/loading";
 import { takeNext } from "@/lib/nav";
 
 export default function OAuthCallbackPage() {
@@ -43,7 +44,10 @@ export default function OAuthCallbackPage() {
           </button>
         </>
       ) : (
-        <p>正在完成登录…</p>
+        <div className="splash-status">
+          <Spinner size={13} />
+          <p>正在完成登录…</p>
+        </div>
       )}
     </div>
   );

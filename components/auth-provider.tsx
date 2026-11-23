@@ -15,6 +15,8 @@ import {
   type User,
 } from "@autional/core";
 import { autionalConfig, AUTIONAL_TENANT_ID } from "@/lib/autional";
+import { decideBoot } from "@/lib/auth-boot";
+import { clearSession, readSession, writeSession } from "@/lib/session";
 import {
   ensureToken,
   installTokenSession,
@@ -58,7 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const boot = useCallback(
     async (alive: () => boolean) => {
       const ensured = await ensureToken(autional);
-      let issue: TokenIssue | null = ensured.ok ? null : ensured.issue;
+      const issue: TokenIssue | null = ensured.ok ? null : ensured.issue;
 
       try {
         await autional.initialize();
@@ -66,14 +68,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         /* initialize 内部已兜底 */
       }
 
-      if (autional.isAuthenticated()) issue = null;
-      else if (!issue) issue = "expired";
+      if (!alive()) return;
 
-      if (alive()) {
+      const decision = decideBoot({
+        authenticated: autional.isAuthenticated(),
+        issue,
+        hasSnapshot: readSession() !== null,
+      });
+
+      if (decision.kind === "authenticated") {
+        writeSession(autional.user);
         setUser(autional.user);
-        setAuthIssue(issue);
+        setAuthIssue(null);
         setIsLoading(false);
+        return;
       }
+
+      if (decision.kind === "keep-optimistic") {
+        // 断网/服务异常：保留本地快照渲染的界面，让用户继续离线编辑，
+        // 而不是把一次网络抖动当成「登录失效」踢回登录页。
+        setAuthIssue(decision.issue);
+        setIsLoading(false);
+        return;
+      }
+
+      clearSession();
+      setUser(null);
+      setAuthIssue(decision.issue);
+      setIsLoading(false);
     },
     [autional],
   );
@@ -82,25 +104,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let alive = true;
     const isAlive = () => alive;
 
+    // 首屏乐观恢复：本地有会话快照就先当已登录渲染工作区，
+    // 真正的令牌校验放到后台进行——用户看到的等待从「认证 RTT」变成 0。
+    const snapshot = readSession();
+    if (snapshot) {
+      setUser({ id: snapshot.id, email: snapshot.email });
+      setIsLoading(false);
+    }
+
     const sync = () => {
       if (!alive) return;
       setUser(autional.user);
-      if (autional.isAuthenticated()) setAuthIssue(null);
+      if (autional.isAuthenticated()) {
+        writeSession(autional.user);
+        setAuthIssue(null);
+      }
     };
 
     const offUser = autional.on("USER_CHANGED", sync);
     const offToken = autional.on("TOKEN_CHANGED", sync);
     const offOut = autional.on("LOGGED_OUT", () => {
-      if (alive) {
-        setUser(null);
-        setAuthIssue("expired");
-      }
+      if (!alive) return;
+      clearSession();
+      setUser(null);
+      setAuthIssue("expired");
     });
     const offNone = autional.on("NOT_AUTHENTICATED", () => {
-      if (alive) {
-        setUser(null);
-        setAuthIssue("expired");
-      }
+      if (!alive) return;
+      // 没有快照 = 确实没有会话，直接清；有快照则交给 boot / 令牌请求去裁决，
+      // 避免离线启动时把用户误踢回登录页。
+      if (!readSession()) setUser(null);
+      setAuthIssue("expired");
     });
 
     void boot(isAlive);
@@ -116,6 +150,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const retryAuth = useCallback(async () => {
     setIsLoading(true);
+    // 重试时若还有快照，先恢复界面再校验，避免整页回到转圈
+    const snapshot = readSession();
+    if (snapshot) {
+      setUser({ id: snapshot.id, email: snapshot.email });
+      setIsLoading(false);
+    }
     await boot(() => true);
   }, [boot]);
 
@@ -126,6 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password,
         tenantId: AUTIONAL_TENANT_ID || undefined,
       });
+      writeSession(result.user);
       setUser(result.user);
       setAuthIssue(null);
     },
@@ -164,6 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await autional.logout();
     } finally {
+      clearSession();
       setUser(null);
       setAuthIssue("expired");
     }

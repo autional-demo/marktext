@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MarkText Web · 离线</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff;
+        --text: #1f2328;
+        --muted: #6b7280;
+        --accent: #2f6fed;
+        --border: #e6e6e8;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #1e1f22;
+          --text: #e6e6e6;
+          --muted: #9aa0a6;
+          --accent: #6f9bff;
+          --border: #303237;
+        }
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Microsoft YaHei", Roboto, sans-serif;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        text-align: center;
+      }
+      .card { max-width: 380px; display: grid; gap: 14px; justify-items: center; }
+      .logo {
+        width: 56px; height: 56px; border-radius: 14px; display: grid; place-items: center;
+        font-weight: 700; font-size: 22px; color: #fff;
+        background: linear-gradient(160deg, #2f6fed, #123f9c);
+      }
+      h1 { font-size: 18px; margin: 0; }
+      p { margin: 0; font-size: 13px; color: var(--muted); line-height: 1.6; }
+      button {
+        border: 1px solid var(--border); background: transparent; color: var(--text);
+        font: inherit; font-size: 13px; padding: 8px 18px; border-radius: 8px; cursor: pointer;
+      }
+      button:hover { border-color: var(--accent); color: var(--accent); }
+      .hint { font-size: 11px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo">M↓</div>
+      <h1>网络已断开</h1>
+      <p>本机缓存的文档仍然可用。恢复网络后会自动重新连接，正在编辑的内容不会丢失。</p>
+      <button id="retry" type="button">重试</button>
+      <p class="hint" id="hint">正在等待网络恢复…</p>
+    </div>
+    <script>
+      var hint = document.getElementById("hint");
+      document.getElementById("retry").addEventListener("click", function () {
+        location.replace("/");
+      });
+      window.addEventListener("online", function () {
+        hint.textContent = "网络已恢复，正在重新连接…";
+        location.replace("/");
+      });
+    </script>
+  </body>
+</html>

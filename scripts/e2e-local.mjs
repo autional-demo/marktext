@@ -155,6 +155,39 @@ try {
   const put = await putRes.json();
   check("保存成功 rev=2", putRes.status === 200 && put?.doc?.rev === 2, `rev=${put?.doc?.rev}`);
 
+  /* 7b. 增量保存：只改标题，正文保持不动 */
+  const patchTitleRes = await api(`/api/docs/${docId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title: "E2E 标题 B", rev: 2 }),
+  });
+  const patchedTitle = await patchTitleRes.json();
+  check(
+    "增量保存标题 rev=3",
+    patchTitleRes.status === 200 && patchedTitle?.doc?.rev === 3,
+    `rev=${patchedTitle?.doc?.rev}`,
+  );
+  check("只改标题时正文保持", patchedTitle?.doc?.content === "# 第二版");
+
+  /* 7c. 增量保存：只改正文，标题保持不动 */
+  const patchBodyRes = await api(`/api/docs/${docId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ content: "# 第三版", rev: 3 }),
+  });
+  const patchedBody = await patchBodyRes.json();
+  check(
+    "增量保存正文 rev=4",
+    patchBodyRes.status === 200 && patchedBody?.doc?.rev === 4,
+    `rev=${patchedBody?.doc?.rev}`,
+  );
+  check("只改正文时标题保持", patchedBody?.doc?.title === "E2E 标题 B");
+
+  /* 7d. 增量保存：没有任何字段应 400 */
+  const patchEmptyRes = await api(`/api/docs/${docId}`, {
+    method: "PATCH",
+    body: JSON.stringify({}),
+  });
+  check("PATCH 空字段返回 400", patchEmptyRes.status === 400, `status=${patchEmptyRes.status}`);
+
   /* 8. 旧 rev 冲突 */
   const conflictRes = await api(`/api/docs/${docId}`, {
     method: "PUT",
@@ -162,7 +195,14 @@ try {
   });
   const conflict = await conflictRes.json();
   check("旧 rev 返回 409", conflictRes.status === 409, `status=${conflictRes.status}`);
-  check("409 带回云端版本", conflict?.doc?.rev === 2, `rev=${conflict?.doc?.rev}`);
+  check("409 带回云端版本", conflict?.doc?.rev === 4, `rev=${conflict?.doc?.rev}`);
+
+  /* 8b. 增量保存的旧 rev 同样 409 */
+  const patchStaleRes = await api(`/api/docs/${docId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title: "冲突标题", rev: 1 }),
+  });
+  check("PATCH 旧 rev 返回 409", patchStaleRes.status === 409, `status=${patchStaleRes.status}`);
 
   /* 9. 库里是密文 */
   const sql = neon(process.env.DATABASE_URL);
@@ -171,7 +211,7 @@ try {
   `;
   const raw = rows[0];
   check("库里正文为密文", !!raw && raw.content.startsWith("v1:"), raw?.content?.slice(0, 8));
-  check("库里不含明文", !!raw && !raw.content.includes("第二版"));
+  check("库里不含明文", !!raw && !raw.content.includes("第三版"));
 
   /* 10. 删除 */
   const delRes = await api(`/api/docs/${docId}`, { method: "DELETE" });
