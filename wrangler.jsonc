@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "marktext",
+  "compatibility_date": "2025-11-01",
+  // nodejs_compat：本应用的 Route Handler 用到 node:crypto（AES-256-GCM 字段加密）
+  // 和 Buffer；workerd 自 2025 起已实现 createCipheriv/createDecipheriv。
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": {
+    "enabled": true
+  },
+  // 自定义域由 Workers 接口自动建 DNS 记录并签证书，不需要 DNS 编辑权限。
+  // 首次 `wrangler deploy` 时自动绑定。
+  "routes": [
+    {
+      "pattern": "marktext.denglu.dev",
+      "custom_domain": true
+    }
+  ]
+}

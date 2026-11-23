@@ -15,6 +15,7 @@
 | 项 | 值 |
 |---|---|
 | 生产地址 | https://marktext-web.vercel.app |
+| 镜像地址（Cloudflare） | https://marktext.denglu.dev（Worker `marktext`，见 `docs/DEPLOY_CLOUDFLARE.md`） |
 | 部署源仓库 | https://github.com/autional-demo/marktext （分支 `main`） |
 | 本地 remote | `origin`（同一仓库） |
 | Vercel 项目 | `marktext-web`（team `见交付消息的 team`） |
@@ -118,6 +119,20 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 生产 PWA | `/manifest.webmanifest`、`/sw.js`、`/icon.svg` 均 200 |
 | 真实账号同步 | `new doc 001` 已入库，rev=16，正文为密文 |
 
+### 2026-11-23 PWA / 本地优先改造（本轮）
+
+| 检查 | 结果 |
+|---|---|
+| 构建 | 通过（10 条路由；`/` 首屏 JS 131 kB，首屏 CSS 141.6 kB → 10 kB） |
+| 单测 | merge 10/10、boot 8/8、token 10/10；`node --check` 通过 sw.js 与 e2e-local.mjs |
+| 编辑器异步加载 | 临时路由验证：muya 动态 chunk + core.css 正常渲染（标题/列表/表格） |
+| 离线壳 | 停掉服务器后打开任意未访问深链仍渲染（SW 壳预缓存生效） |
+| IndexedDB | 运行时自检：500 篇往返一致；旧 localStorage 迁移并删旧键 |
+| 虚拟列表 | 500 篇只渲染 37 个行节点 |
+| 增量同步 | PATCH 缺字段 400、旧 rev 409（未接真实库，见待办） |
+| 静默更新/提醒 | 注入 remoteRev：旧版本提示条 → 输入字符后升级为冲突条 + 侧栏红点 |
+| 离线工作区 | 断网重载：500 篇 + 编辑器 + 离线状态完整恢复 |
+
 ## 7. 关键决策
 
 1. **不直接部署 MarkText**：它是 Electron 桌面应用；改用其官方 web 内核 muya。
@@ -127,11 +142,19 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 5. **提权方式**：试用租户是 `member`，用 `role-activations` 申请 `admin`（1 小时）后建客户端。
 6. **文档走服务端而非浏览器直连**：浏览器直连数据库需要 RLS 策略，漏一条即全表公开；改为 Next.js Route Handler + 服务端鉴权，授权逻辑在 TypeScript 里。
 7. **正文与标题字段级加密**：AES-256-GCM，密钥在 Vercel 环境变量；Neon 只能看到密文。代价是失去服务端正文检索（当前无此需求）。
-8. **本地优先同步**：localStorage 作为离线缓存，Neon 为真源；用 `rev` 做乐观并发控制，冲突时由用户选择保留哪版。
+8. **本地优先同步**：IndexedDB 作为本机主视图，Neon 为真源；用 `rev` 做乐观并发控制，冲突时由用户选择保留哪版。
 9. **token 校验用 `/me` 而不是 JWKS**：真实 access token 没有 `kid`，签名密钥也不在公开 JWKS 中，JWKS 验签必然失败。改为解码 exp + 调身份服务 `/me` 权威校验，结果缓存 60 秒。
 10. **函数区域用 `vercel.json`**：`preferredRegion` 在 Next.js 15 已废弃、Vercel 对 Node 运行时不生效。改为项目级 `regions: ["sin1"]`，与 Neon 区域一致。
 11. **每条笔记独立 URL**：`/d/<id>`，用 `history.pushState` 同步地址栏，不触发 RSC 导航，切换无加载。
-12. **PWA 只做壳缓存**：导航 network-first、静态资源 cache-first、API 一律不缓存，避免缓存用户数据或卡在旧版本。
+12. **PWA 壳预缓存 + 分层缓存**：壳 install 预缓存；`_next/static` cache-first；导航 network-first + 4s 超时；`/api`、`/bff`、`/oauth` 一律不缓存。
+13. **缓存版本跟随构建号**：静态页 HTML 里的 `<!--buildId-->` 作为版本信号，部署后自动重建壳；带哈希 chunk 跨版本复用，不再手动 bump `VERSION`。
+14. **编辑器内核异步化**：`Editor`/`Workspace` 走 `next/dynamic`，muya 的 141.6 KB CSS 移出首屏；登录页不再为编辑器样式付费。
+15. **本机缓存用 IndexedDB**：localStorage 约 5 MB 配额会静默失败；IDB 异步、容量大，旧数据自动迁移。
+16. **增量同步**：`PATCH /api/docs/:id` 只传变化字段；`doc.synced` 存字段指纹，无变化不发请求。
+17. **乐观登录**：本地会话快照先渲染工作区，令牌校验后台进行；只有 expired/revoked 才踢回登录页（`lib/auth-boot.ts` 纯函数 + 单测）。
+18. **打开从不等待网络**：恢复上次打开的文档；列表检查在后台，差量合并（`lib/merge.ts`）不动未变化的文档对象。
+19. **静默更新 + 必须提醒旧版本**：不在看的文档后台静默替换；正在看的旧版本显示「当前显示的是旧版本」；一旦在上面继续编辑立即升级为冲突，给「载入云端」/「用本机覆盖」。
+20. **侧栏虚拟列表**：固定行距窗口渲染，几百篇只渲染可视行。
 
 ## 8. 已知问题 / 待办
 
@@ -147,7 +170,14 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除，仅保留 `marktext-web`） |
 | 测试账号 | `marktext.test1` 因风控验证码已删除，由 `marktext.demo1` 替代；密码见交付消息 |
 | 管理门户 404 | `admin.autional.cn/<slug>/` 平台侧返回 404 |
+| Cloudflare 镜像的半成品状态 | `marktext.denglu.dev` 已上线，但 Worker 缺 `DATABASE_URL`/`CONTENT_ENCRYPTION_KEY` Secret（云同步 500），且 OAuth 回调未登记（SSO 400）；详见 `docs/DEPLOY_CLOUDFLARE.md` |
 | fork 默认分支 | 仍为 `develop`；如需访客直达应用代码，可改为 `main` |
+| 构建号只在静态页 | SW 从 `/`、`/login` 静态页 HTML 的 `<!--buildId-->` 取版本；`/d/[id]` 是动态页没有该标记。安装预缓存与访问首页都会刷新，实际够用 |
+| 真实库上的增量同步未回归 | PATCH 用例已写进 `scripts/e2e-local.mjs`，但本机缺 `DATABASE_URL` 未执行；上线后需跑一次 |
+| 远程正文按需拉取 | 列表只回元数据；离线时看到的是本机版本，联网后才会提示/静默更新 |
+| 冲突粒度是整篇 | 没有 Markdown 三方合并；冲突时只能整篇「载入云端」或「用本机覆盖」 |
+| 首屏仍有一个后台请求 | 打开时只读本地、不阻塞渲染；但随后会发一次列表请求检查更新（失败即静默离线） |
+| Cloudflare 镜像需重建 | 本地改了前端后，镜像要重新 `npm run cf:build && npm run cf:deploy`，否则仍是旧前端 |
 
 ## 9. 时间线
 
@@ -165,9 +195,19 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 2026-11-04 | 修复三个上线阻塞：函数区域、`iss` 校验、JWKS 不适用 |
 | 2026-11-04 | 上线笔记独立 URL（`/d/[id]`）与 PWA |
 | 2026-11-04 | 生产部署 `ca346e7`，功能验收通过 |
+| 2026-11-23 | 上线 Cloudflare Workers 镜像 `marktext.denglu.dev`（`@opennextjs/cloudflare`）；云同步 Secret 与 SSO 回调待补 |
+| 2026-11-23 | PWA 能力补齐（192/512/maskable 图标、壳预缓存、离线页、构建号自动失效、更新提示） |
+| 2026-11-23 | 首屏瘦身：muya 141.6 KB CSS 移出首屏，`Workspace`/`Editor` 异步化，首屏 CSS 降至 10 KB |
+| 2026-11-23 | 加载体验：统一 Spinner/骨架屏，按钮忙碌态，`prefers-reduced-motion` |
+| 2026-11-23 | 数据层：IndexedDB 缓存 + 旧数据迁移；`PATCH` 增量同步；侧栏虚拟列表 |
+| 2026-11-23 | 本地优先：乐观登录、恢复上次打开的文档、差量合并、静默更新 + 旧版本提醒/冲突升级 |
+| 2026-11-23 | 单测补齐：`test:merge`(10) / `test:boot`(8) / `test:token`(10)，共计 28 项全绿 |
 
 ## 10. 凭据
 
 管理员密码、测试账号密码、个人邮箱**不在本仓库**。请向交付人索取。
 
 > 当前可用测试账号：`marktext.demo1@gmail.com`、`marktext.test2@gmail.com`、`marktext.test3@gmail.com`（密码见交付消息）。
+
+> 2026-11-23 为 `marktext.denglu.dev` 新增 3 个账号：`marktext_admin`（管理员，JIT 24h 激活）、
+> `marktext_user1`、`marktext_user2`（普通用户）。口令不入库，见本机交付文件。

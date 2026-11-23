@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:token": "tsx --test scripts/token-session.test.ts"
+    "test:token": "tsx --test scripts/token-session.test.ts",
+    "test:boot": "tsx --test scripts/auth-boot.test.ts",
+    "test:merge": "tsx --test scripts/merge-docs.test.ts",
+    "cf:build": "opennextjs-cloudflare build",
+    "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy"
   },
   "dependencies": {
     "@autional/api-identity": "^0.4.1",
@@ -25,10 +30,12 @@
     "@autional/api-oauth": "^0.6.1",
     "@autional/api-tenant": "^0.4.0",
     "@autional/node": "^0.3.0",
+    "@opennextjs/cloudflare": "^1.20.18",
     "@types/node": "^22.10.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "tsx": "^4.23.15",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "wrangler": "^4.166.0"
   }
 }

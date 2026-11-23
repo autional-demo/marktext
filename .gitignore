@@ -19,3 +19,11 @@ butler/
 # 本地构建产物（交叉编译的服务二进制/中间 dist）
 dist/
 build-*/
+
+# Cloudflare Workers（OpenNext 适配器）
+.open-next/
+.wrangler/
+.dev.vars
+
+# 本机部署验证产物（一次性日志/回执，不入库）
+lite/
