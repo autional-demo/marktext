@@ -152,6 +152,9 @@ INFO client | client_name="MarkText Web" tenant=01M6JBFH2T3P7HYR3MSM0SD5MG
 （目前只有 Vercel 生产 + localhost + 127.0.0.1），并把 `https://marktext.denglu.dev`
 加进 CORS 源。
 
+> **重建后复核（2026-11-23）**：前端已重建到 v4，但 SSO 预检结果**仍是**
+> `authorize 400`——回调确实还没登记。镜像上目前只能用邮箱密码登录。
+
 补法（租户管理员邮箱 + 密码，密码走环境变量，不进命令历史）：
 
 ```powershell
