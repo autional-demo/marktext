@@ -136,6 +136,9 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 生产部署 | GitHub commit status：Vercel `Deployment has completed`（commit `43cf24fd`，2026-11-23 09:09 UTC） |
 | 生产资源实测 | `/sw.js` = `v3`、manifest 含 192/512/maskable、`/offline.html` 200、`/api/docs` 与 PATCH 均 401 |
 | CI | 新增 `.github/workflows/ci.yml`（单测 + 构建）；本地验证无 `.env.local` 也能构建 |
+| Cloudflare 镜像重建 | `wrangler deploy` 成功（842+ 静态资源 + Worker）；线上实测 `/sw.js` = v4、`/`、`/login`、`/offline.html`、`/icons/icon-512.png` 200、`/api/docs` 401 |
+| Cloudflare Secret | `wrangler secret list --name marktext`：`DATABASE_URL`、`CONTENT_ENCRYPTION_KEY`、`CONTENT_ENCRYPTION_KEY_KID` 三项均在 |
+| 镜像版本检测 | `/`、`/login`、`/oauth/callback` 三页共享 chunk 指纹一致（`h0a54c3dd`），不会因切页误判 |
 
 ## 7. 关键决策
 
@@ -159,6 +162,9 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 18. **打开从不等待网络**：恢复上次打开的文档；列表检查在后台，差量合并（`lib/merge.ts`）不动未变化的文档对象。
 19. **静默更新 + 必须提醒旧版本**：不在看的文档后台静默替换；正在看的旧版本显示「当前显示的是旧版本」；一旦在上面继续编辑立即升级为冲突，给「载入云端」/「用本机覆盖」。
 20. **侧栏虚拟列表**：固定行距窗口渲染，几百篇只渲染可视行。
+21. **SW 版本检测双通道**：优先用 `<!--buildId-->` 注释（Vercel）；OpenNext 会剥掉注释，
+    改用「跨页面共享 chunk 指纹」（webpack / main-app / layout / polyfills），
+    避免按整页资源集计算导致切页误判。
 
 ## 8. 已知问题 / 待办
 
@@ -174,7 +180,9 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 试用租户残留 | 已清理（2026-11-04，9 个空租户全部删除，仅保留 `marktext-web`） |
 | 测试账号 | `marktext.test1` 因风控验证码已删除，由 `marktext.demo1` 替代；密码见交付消息 |
 | 管理门户 404 | `admin.autional.cn/<slug>/` 平台侧返回 404 |
-| Cloudflare 镜像落后于主站 | 2026-11-23 外部实测：`marktext.denglu.dev` 仍跑旧前端（`/sw.js` = `VERSION="v1"`、manifest 只有 `/icon.svg`）；`/api/docs` 返回 401（鉴权链路通）。Worker Secret 与 OAuth 回调本机无 Cloudflare 凭据、**未复核**，以 `npx wrangler secret list --name marktext` 为准；前端改动需 `npm run cf:build && npm run cf:deploy` 重建。详见 `docs/DEPLOY_CLOUDFLARE.md` §1.1 |
+| Cloudflare 镜像 | **已与主站一致**（2026-11-23 重建）：`/sw.js` = v4、manifest 含 192/512/maskable、`/offline.html` 200、`/api/docs` 401。前端每次改动需重新 `npm run cf:build` + `wrangler deploy`。详见 `docs/DEPLOY_CLOUDFLARE.md` §1.1 |
+| Cloudflare 与 Vercel 的版本信号差异 | OpenNext 会剥掉静态页的 `<!--buildId-->`，SW 在镜像上改用「跨页共享 chunk 指纹」；两分支都已线上验证，切页面不会误判新版本 |
+| 镜像上的 SSO 回调 | 仍按 `docs/DEPLOY_CLOUDFLARE.md` §6 待补（由 Autional 侧登记回调）；本轮未改动、也未验证 |
 | fork 默认分支 | 仍为 `develop`；如需访客直达应用代码，可改为 `main` |
 | 构建号只在静态页 | SW 从 `/`、`/login` 静态页 HTML 的 `<!--buildId-->` 取版本；`/d/[id]` 是动态页没有该标记。安装预缓存与访问首页都会刷新，实际够用 |
 | 真实库上的增量同步 | 已回归（2026-11-23）：`e2e-local.mjs` 19/19，覆盖 PATCH 只改标题/只改正文/空字段 400/旧 rev 409/密文断言 |
@@ -209,6 +217,7 @@ git push origin main        # origin = autional-demo/marktext（触发部署）
 | 2026-11-23 | 单测补齐：`test:merge`(10) / `test:boot`(8) / `test:token`(10)，共计 28 项全绿 |
 | 2026-11-23 | 提交推送 `05c9ebf9` / `43cf24fd`；Vercel 生产部署成功（commit status: Deployment has completed） |
 | 2026-11-23 | 真实库端到端回归 19/19（含增量保存 PATCH）；新增 GitHub Actions CI（单测 + 构建） |
+| 2026-11-23 | Cloudflare 镜像重建：SW v4 + 双通道版本检测；`wrangler secret list` 确认为 3 项 Secret 齐全 |
 
 ## 10. 凭据
 

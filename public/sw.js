@@ -8,15 +8,17 @@
  *   页面内 RSC 数据（? _rsc）        network-first，离线回退缓存
  *   /api、/bff、/oauth              完全不拦截：用户数据不进缓存、不卡旧版本
  *
- * 版本：以 Next 构建 ID 为准（静态页面 HTML 里的 <!--buildId--> 注释）。
- * 发现新构建就刷新壳预缓存；带哈希的静态资源跨版本继续复用，只有变了的
- * chunk 才会重新下载。VERSION 只在需要「强制清空所有缓存」时手动加一。
+ * 版本：优先用 Next 构建号（Vercel 静态页 HTML 里的 <!--buildId--> 注释）；
+ * Cloudflare(OpenNext) 会把该注释剥掉，此时退化为「页面引用的 hashed 资源指纹」，
+ * 两边都能得到稳定的每构建标识。发现新构建就刷新壳预缓存；带哈希的静态资源
+ * 跨版本继续复用，只有变了的 chunk 才会重新下载。
+ * VERSION 只在需要「强制清空所有缓存」时手动加一。
  *
  * 更新：新 worker 不自动 skipWaiting，等页面 postMessage 后再激活，
  * 避免「页面跑旧 JS、缓存是新版本」的错配。
  */
 
-const VERSION = "v3";
+const VERSION = "v4";
 const CACHE_PREFIX = "marktext";
 const PRECACHE = `${CACHE_PREFIX}-precache-${VERSION}`;
 const STATIC_CACHE = `${CACHE_PREFIX}-static-${VERSION}`;
@@ -40,8 +42,15 @@ const NAV_TIMEOUT = 4000;
 /** 静态缓存条目软上限，跨版本复用后清理过老的 chunk。 */
 const STATIC_MAX_ENTRIES = 500;
 
-/** Next 会把构建 ID 写在静态页面 HTML 开头的注释里。 */
+/** 构建号注释（Vercel 有，Cloudflare 无） */
 const BUILD_ID_PATTERN = /<!--([A-Za-z0-9_-]{8,})-->/;
+/**
+ * 退化信号：只用「跨页面共享」的 chunk（webpack / main-app / layout / polyfills）。
+ * 不能用整页资源列表——`/` 与 `/login` 的资源集不同，指纹会来回跳。
+ */
+const SHARED_ASSET_PATTERN =
+  /\/_next\/static\/chunks\/(?:app\/layout|main-app|webpack|polyfills)-[^"'\s)]*/g;
+const ALL_ASSET_PATTERN = /\/_next\/static\/[^"'\s)]+/g;
 const BUILD_KEY = "/__marktext-build";
 
 self.addEventListener("install", (event) => {
@@ -119,7 +128,7 @@ self.addEventListener("fetch", (event) => {
 /* ---------------- 应用壳与版本 ---------------- */
 
 async function precacheShell() {
-  // 先取首页：它带着当前构建 ID，顺手记下来
+  // 先取首页：它带着当前构建号（或资源指纹），顺手记下来
   let build = null;
   try {
     const home = await fetch(new Request("/", { cache: "reload" }));
@@ -147,9 +156,26 @@ async function precacheShell() {
   );
 }
 
+function fingerprint(urls) {
+  if (!urls || urls.length === 0) return null;
+  const unique = [...new Set(urls)].sort().join("|");
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < unique.length; i += 1) {
+    hash = Math.imul(hash ^ unique.charCodeAt(i), 0x01000193);
+  }
+  return `h${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
 function extractBuildId(text) {
-  const match = text.match(BUILD_ID_PATTERN);
-  return match ? match[1] : null;
+  const comment = text.match(BUILD_ID_PATTERN);
+  if (comment) return comment[1];
+
+  // 注释被剥掉时（Cloudflare / OpenNext）：
+  // 先用跨页共享 chunk 的指纹（稳定），没有才退回整页资源列表
+  return (
+    fingerprint(text.match(SHARED_ASSET_PATTERN)) ??
+    fingerprint(text.match(ALL_ASSET_PATTERN))
+  );
 }
 
 /** 导航拿到新 HTML 时调用：构建变了就重建壳预缓存。 */
@@ -249,7 +275,7 @@ async function navigateNetworkFirst(req, event) {
     const res = await fetchWithTimeout(req, NAV_TIMEOUT);
     if (isCacheable(res)) {
       await cache.put(req, res.clone());
-      // 顺手检查部署版本（静态页 HTML 里带构建 ID）
+      // 顺手检查部署版本（注释或资源指纹）
       const detect = detectBuild(res);
       if (event && typeof event.waitUntil === "function") event.waitUntil(detect);
       else void detect;

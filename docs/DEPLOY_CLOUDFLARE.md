@@ -20,24 +20,35 @@
 | SSO 登录 | ⏳ 缺回调登记（见 §6） |
 | 云同步读写 | ⏳ 配置已就绪，缺一次真实登录端到端验收 |
 
-### 1.1 现状核对（2026-11-23，外部实测）
+### 1.1 现状核对（2026-11-23，已重建并逐项实测）
 
-| 检查项 | 实测结果 | 含义 |
+| 检查项 | 实测结果 | 说明 |
 |---|---|---|
-| `GET /` | 200 | 镜像在线 |
-| `GET /sw.js` | 200，`const VERSION = "v1"`，不含 `BUILD_ID_PATTERN` | **前端是旧版**（缺本轮 PWA/缓存改造） |
-| `GET /manifest.webmanifest` | 200，icons 只有 `/icon.svg` | 同上，缺 192/512/maskable |
-| `GET /api/docs` | 401 | 鉴权链路通、路由可达（未带 token 应 401） |
-| Worker Secret / OAuth 回调 | **未能复核** | 本机无 Cloudflare 凭据（无 `CLOUDFLARE_API_TOKEN`、无 `~/.wrangler`），需在有凭据的机器上跑 `npx wrangler secret list --name marktext` 确认 |
+| `GET /` | 200 | 在线 |
+| `GET /sw.js` | 200，`VERSION = "v4"`，含构建号 + 共享 chunk 指纹双通道 | **与主站一致** |
+| `GET /manifest.webmanifest` | 200，icons = 192/512/maskable + SVG | 与主站一致 |
+| `GET /offline.html` | 200 | 离线兜底页已就位 |
+| `GET /icons/icon-512.png` | 200 | 图标已上传 |
+| `GET /api/docs` | 401 | 鉴权链路通 |
+| `wrangler secret list --name marktext` | `DATABASE_URL`、`CONTENT_ENCRYPTION_KEY`、`CONTENT_ENCRYPTION_KEY_KID` **均在** | 早期“缺 Secret 导致 500”的说法**已过时** |
 
-结论：**镜像需要重建才能与主站一致**。另外本文档 §6 记录的“SSO 回调未登记”如仍未补齐，
-镜像上的 SSO 依旧不可用；Secret 是否都在，以上面 `wrangler secret list` 的实测为准
-（`PROJECT_NOTES` 早期“缺 Secret 导致 500”的说法已过时，2026-11-23 本次核对不再以此为准）。
+**OpenNext 差异（重要）**：Cloudflare 版本会把静态页 HTML 里的 `<!--buildId-->` 注释剥掉，
+所以 SW 的版本检测在镜像上走「**跨页面共享 chunk 指纹**」分支
+（`webpack` / `main-app` / `app/layout` / `polyfills`），Vercel 走注释分支。
+两分支都已线上验证：镜像 `/`、`/login`、`/oauth/callback` 三个页面指纹一致（`h0a54c3dd`），
+不会因为切换页面而误判「有新版本」。
 
-重建命令（有凭据时）：
+> 注意：指纹只在**前端 chunk 变化**时改变。只改 `public/` 或文档不会触发壳重建——这是期望行为。
+> 如果哪天要把「只改 sw.js」也变成强制刷新，手动把 `public/sw.js` 的 `VERSION` 加一即可。
 
-```bash
-npm run cf:build && npm run cf:deploy     # 或 npx wrangler deploy
+重建命令（凭据在本机 Windows 凭据管理器，经 `D:\xiaozhai.dev\qcloud\cred\cloudflare-cred.ps1` 注入）：
+
+```powershell
+npm run cf:build
+powershell -NoProfile -ExecutionPolicy Bypass `
+  -File D:\xiaozhai.dev\qcloud\cred\cloudflare-cred.ps1 run `
+  -Proxy http://127.0.0.1:10809 `
+  -Cmd "cd /d D:\work\marktext && npx wrangler deploy"
 ```
 
 | 项 | 值 |
