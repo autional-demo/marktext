@@ -1011,7 +1011,15 @@ export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
             <span className="account-email" title={user?.email}>
               {user?.email ?? userId}
             </span>
-            <span className="account-hint">Autional 账号</span>
+            <a
+              className="account-hint"
+              href="https://user.autional.cn/marktext-web/"
+              target="_blank"
+              rel="noreferrer"
+              title="在 Autional 用户中心管理账号、设备与授权"
+            >
+              账号中心
+            </a>
           </div>
           <button className="logout" onClick={handleLogout} title="登出">
             登出

@@ -136,3 +136,15 @@
 - 控制台除 Cloudflare Insights 被网络拦截外无应用错误。
 
 租户策略：`marktext-web` 的 tenant-service auth-policy 已补 `qr` / `email_code`（原实际生效值只有 `password`，公开 auth-config 与登录门禁不一致）。
+
+### 登录页链接与手机登录排查（2026-11-24）
+
+| 项 | 处理 |
+|---|---|
+| 账号中心 | 登录页底部 + 工作区侧栏新增 `https://user.autional.cn/marktext-web/` |
+| 注册 | 底部新增；带 `redirect=<本站 /login>`，注册后回本站登录 |
+| 忘记密码 | 底部新增 `https://auth.autional.cn/marktext-web/forgot-password` |
+| 服务条款 / 隐私政策 | 底部新增租户级链接 |
+| 认证器安装 | 扫码面板新增 `https://authenticator.autional.cn/` |
+| 手机端默认方式 | 小屏默认邮箱验证码，避免「扫自己屏幕」 |
+| 短信验证码登录 | **未上线**：marktext 租户 0 个 phone identity（仅 email 13 / username 4）；生产短信通道是 `cloud-sms4dev`（开发模拟器），真手机收不到码。需真实短信供应商 + 手机号绑定流程后才能做 |

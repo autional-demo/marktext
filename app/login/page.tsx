@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { registerUrl, useAuth, type QrSession } from "@/components/auth-provider";
+import { useAuth, type QrSession } from "@/components/auth-provider";
 import { safeNext } from "@/lib/nav";
 import { Spinner } from "@/components/loading";
 
@@ -10,6 +10,23 @@ type Tab = "qr" | "email";
 type QrPhase = "idle" | "loading" | "pending" | "scanned" | "error" | "expired";
 
 const AUTHENTICATOR_APPROVE = "https://authenticator.autional.cn/login-approve";
+const AUTHENTICATOR_HOME = "https://authenticator.autional.cn/";
+const AUTH_TENANT_BASE = "https://auth.autional.cn/marktext-web";
+const ACCOUNT_CENTER = "https://user.autional.cn/marktext-web/";
+
+function appOrigin(): string {
+  if (typeof window !== "undefined") return window.location.origin;
+  return process.env.NEXT_PUBLIC_APP_ORIGIN ?? "https://marktext.denglu.dev";
+}
+
+function registerUrl(): string {
+  const redirect = encodeURIComponent(`${appOrigin()}/login`);
+  return `${AUTH_TENANT_BASE}/register?redirect=${redirect}`;
+}
+
+function forgotPasswordUrl(): string {
+  return `${AUTH_TENANT_BASE}/forgot-password`;
+}
 
 function qrUrl(session: QrSession): string {
   const params = new URLSearchParams({
@@ -56,6 +73,11 @@ export default function LoginPage() {
   useEffect(() => {
     if (!isLoading && isAuthenticated) router.replace(safeNext());
   }, [isLoading, isAuthenticated, router]);
+
+  // 手机上「扫自己屏幕」不成立：默认落到邮箱验证码。
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 639px)").matches) setTab("email");
+  }, []);
 
   const stopTimers = useCallback(() => {
     if (pollTimer.current !== null) {
@@ -244,6 +266,12 @@ export default function LoginPage() {
                 <p className="qr-hint">
                   用手机上的 Autional 认证器扫码，核对 6 位数字后确认。
                 </p>
+                <p className="qr-install">
+                  第一次使用？{" "}
+                  <a href={AUTHENTICATOR_HOME} target="_blank" rel="noreferrer">
+                    安装 / 打开 Autional 认证器
+                  </a>
+                </p>
                 <button
                   type="button"
                   className="sso-button"
@@ -370,12 +398,21 @@ export default function LoginPage() {
           </p>
         )}
 
+        <p className="login-foot login-links">
+          没有账号？<a href={registerUrl()}>注册</a>
+          <span aria-hidden="true">·</span>
+          <a href={forgotPasswordUrl()}>忘记密码</a>
+          <span aria-hidden="true">·</span>
+          <a href={ACCOUNT_CENTER}>账号中心</a>
+        </p>
         <p className="login-foot">
-          登录页不收集密码。账号注册与安全管理在{" "}
-          <a href={registerUrl()} rel="noreferrer">
-            Autional
-          </a>{" "}
-          完成。
+          登录即表示同意 Autional 读取你的基本身份与邮箱地址；可随时在{" "}
+          <a href={ACCOUNT_CENTER}>账号中心</a>撤销授权。登录页不收集密码。
+        </p>
+        <p className="login-foot login-links">
+          <a href={`${AUTH_TENANT_BASE}/terms`}>服务条款</a>
+          <span aria-hidden="true">·</span>
+          <a href={`${AUTH_TENANT_BASE}/privacy`}>隐私政策</a>
         </p>
       </div>
     </div>

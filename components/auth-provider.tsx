@@ -276,9 +276,3 @@ export function useAuth(): AuthContextValue {
   return ctx;
 }
 
-/** Autional 注册入口（租户 slug）。注册在 Autional 完成，登录回本站。 */
-export function registerUrl(): string {
-  const slug =
-    process.env.NEXT_PUBLIC_AUTIONAL_TENANT_SLUG ?? "marktext-web";
-  return `https://auth.autional.cn/${encodeURIComponent(slug)}/register`;
-}
