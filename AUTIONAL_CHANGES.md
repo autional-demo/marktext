@@ -113,3 +113,26 @@
 | 试用租户残留 | 已清理（9 个空租户全部删除，仅保留 `marktext-web`）；同 IP 试用配额已用尽 | 无 |
 | 测试账号重建 | 管理员重置接口写入方式与登录哈希不一致，已删除重建；`test1` 被风控要求验证码，由 `demo1` 替代 | 使用交付消息中的新账号 |
 | 管理门户 404 | 平台侧 `admin.autional.cn/<slug>/` 返回 404 | 后台操作走 API / 角色激活 |
+
+## 内嵌免密登录（2026-11-24）
+
+登录页改为**客户域名内嵌、无密码**：扫码或 6 位邮箱验证码。浏览器不再持有 Autional token，只持有加密 HttpOnly 会话 Cookie。
+
+| 文件 | 作用 |
+|---|---|
+| `app/login/page.tsx` | 扫码 / 邮箱验证码两个 Tab；无密码输入框、无 OAuth 跳转 |
+| `app/api/auth/[...path]/route.ts` | 同源 BFF：`/api/auth/embed/*`、`/session`、`/logout` |
+| `lib/server/ai-auth.ts` | `@autional/ai-auth` 实例（marktext-web 租户、`__Host-marktext-session`） |
+| `lib/server/auth.ts` | 文档 API 接受会话 Cookie（保留 Bearer 兼容分支） |
+| `components/auth-provider.tsx` | 以 `/api/auth/session` 为唯一会话源；QR/邮箱码方法 |
+| `vendor/ai-auth/` | 未发布 SDK 的本地构建副本（发布后可换 npm 依赖） |
+
+服务端密钥（Cloudflare Worker secrets）：`AI_AUTH_SESSION_SECRET`、`AI_BFF_API_KEY`。
+
+实测（2026-11-24，`https://marktext.denglu.dev`）：
+
+- 扫码：二维码生成 → 手机确认 → 会话 Cookie → 工作区加载；文档 API 200。
+- 邮箱码：发送 → 收件 → 登录 → 工作区加载；文档 API 200。
+- 控制台除 Cloudflare Insights 被网络拦截外无应用错误。
+
+租户策略：`marktext-web` 的 tenant-service auth-policy 已补 `qr` / `email_code`（原实际生效值只有 `password`，公开 auth-config 与登录门禁不一致）。

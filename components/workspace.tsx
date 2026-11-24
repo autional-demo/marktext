@@ -27,7 +27,6 @@ import {
   saveDoc,
 } from "@/lib/docs-api";
 import { docPath } from "@/lib/nav";
-import { ensureToken } from "@/lib/token-session";
 
 /**
  * 编辑器（含 muya 内核）是包里最重的一块，异步加载：
@@ -68,7 +67,7 @@ function toMillis(value: string | number): number {
 }
 
 export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
-  const { user, logout, autional } = useAuth();
+  const { user, logout } = useAuth();
   const [docs, setDocs] = useState<Doc[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [status, setStatus] = useState<SaveStatus>("idle");
@@ -109,45 +108,17 @@ export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
   const warmed = useRef(false);
 
   /**
-   * 取 token：统一走 token-session（跨标签锁 + 错误分类）。
-   * - transient/config：只标记离线，不清会话；
-   * - expired/revoked：才显示重新登录横幅。
+   * 会话凭证由 HttpOnly Cookie 自动携带，这里只保留调用点签名。
+   * 返回空串表示「不带 Authorization 头」。
    */
   const getToken = useCallback(
-    async (force = false): Promise<string | null> => {
-      const result = await ensureToken(autional, { force });
-      if (result.ok) {
-        setSessionIssue(null);
-        return result.token;
-      }
-      if (result.issue === "expired" || result.issue === "revoked") {
-        setSessionIssue(result.issue);
-      } else {
-        setStatus("offline");
-      }
-      return null;
+    async (_force = false): Promise<string | null> => {
+      void _force;
+      // 非空哨兵：调用点用 `if (!token)` 判空；docs-api 见 "cookie" 不带 Bearer 头。
+      return "cookie";
     },
-    [autional],
+    [],
   );
-
-  /* 主动刷新：只在可见且临近过期时触发，避免增加轮换次数 */
-  useEffect(() => {
-    const check = () => {
-      if (document.visibilityState !== "visible") return;
-      if (!autional.isAuthenticated()) return;
-      if (autional.tokenManager.needsRefresh(60_000)) {
-        void ensureToken(autional);
-      }
-    };
-    const timer = setInterval(check, 60_000);
-    window.addEventListener("online", check);
-    document.addEventListener("visibilitychange", check);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("online", check);
-      document.removeEventListener("visibilitychange", check);
-    };
-  }, [autional]);
 
   const scheduleCache = useCallback(() => {
     if (cacheTimer.current) clearTimeout(cacheTimer.current);
@@ -243,13 +214,11 @@ export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
                 /* fallthrough */
               }
             }
-            if (err.status === 401 && attempt === 0) {
-              // access token 只有 5 分钟：强制刷新后重试一次
-              const fresh = await getToken(true);
-              if (fresh) {
-                token = fresh;
-                continue;
-              }
+            if (err.status === 401) {
+              // 会话 Cookie 失效或被撤销：提示重新登录，不再自动续期。
+              setSessionIssue("expired");
+              setStatus("offline");
+              return;
             }
           }
           setStatus("offline");
@@ -971,13 +940,13 @@ export default function Workspace({ userId, initialDocId }: WorkspaceProps) {
     flushAll();
     await saveDocs(userId, docsRef.current);
     try {
-      await autional.logout();
+      await logout();
     } catch {
-      /* 令牌已失效时 logout 也可能失败，忽略 */
+      /* 会话已失效时 logout 也可能失败，忽略 */
     } finally {
       window.location.assign("/login");
     }
-  }, [autional, flushAll, userId]);
+  }, [flushAll, logout, userId]);
 
   if (!ready) {
     return (

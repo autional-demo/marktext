@@ -62,13 +62,14 @@ NEXT_PUBLIC_AUTIONAL_AUTHORIZE_URL=https://auth.autional.cn/oauth/api/v1/oauth/a
 
 ## 登录方式
 
-当前启用：**邮箱 + 密码** 与 **SSO**（均基于 Autional）。
+当前启用：**内嵌扫码** 与 **6 位邮箱验证码**（2026-11-24 起；登录页无密码、无 OAuth 跳转）。
 
-- 密码传输：`hash` 模式，`SHA-256(password + "|" + tenantId)`，由 SDK 自动处理。
-- 注册：应用内自行调用 `POST /identity/api/v1/auth/register`（`tenant_id` 为 snake_case），
-  因为 `@autional/core@0.4.1` 的 `register()` 发送 `tenantId`，会被服务端拒绝。
-- 会话：SDK 管理 token；401 时自动刷新；多 Tab 通过 `syncTabs` 同步。
-- SSO：登录页按钮 → 授权码 + PKCE → `/oauth/callback` 换票（经同源 `/bff`）。
+- 扫码：`/api/auth/embed/qr/initiate` → 认证器扫码 → `/status` 确认 → 会话 Cookie。
+- 邮箱码：`/api/auth/embed/email/send` → `/login` → 会话 Cookie。
+- 会话：加密 HttpOnly `__Host-marktext-session`；文档 API 用 Cookie 识别用户，浏览器不持有 Autional token。
+- 注册：登录页链接到 `https://auth.autional.cn/marktext-web/register`，注册在 Autional 完成。
+- SSO / 密码登录入口已从登录页移除；后端保留 Bearer 兼容分支用于过渡。
+- 租户策略需同时开启 `qr` / `email_code`（tenant-service auth-policy 是登录门禁真源）。
 
 ### 登录失败排查
 

@@ -34,10 +34,14 @@ async function call<T>(
   const res = await fetch(path, {
     ...init,
     cache: "no-store",
+    credentials: "same-origin",
     headers: {
       "content-type": "application/json",
       ...(init?.headers ?? {}),
-      authorization: `Bearer ${token}`,
+      // Embedded mode uses the HttpOnly session cookie (no bearer token).
+      ...(token && token !== "cookie"
+        ? { authorization: `Bearer ${token}` }
+        : {}),
     },
   });
 

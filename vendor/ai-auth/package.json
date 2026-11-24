@@ -1,0 +1,17 @@
+{
+  "name": "@autional/ai-auth",
+  "version": "0.1.0-vendored.20261124",
+  "description": "Vendored build of @autional/ai-auth (embed support) until the package is published to npm.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "license": "MIT"
+}

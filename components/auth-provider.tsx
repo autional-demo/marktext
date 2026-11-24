@@ -6,224 +6,265 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
-import {
-  Autional,
-  browserPlatform,
-  processPasswordForTransmission,
-  type User,
-} from "@autional/core";
-import { autionalConfig, AUTIONAL_TENANT_ID } from "@/lib/autional";
-import { decideBoot } from "@/lib/auth-boot";
 import { clearSession, readSession, writeSession } from "@/lib/session";
-import {
-  ensureToken,
-  installTokenSession,
-  type TokenIssue,
-} from "@/lib/token-session";
+
+export interface AuthUser {
+  id: string;
+  email?: string;
+}
+
+export interface QrSession {
+  sessionToken: string;
+  numberMatching: string;
+  expiresIn: number;
+}
+
+export interface QrStatus {
+  status: string;
+  superseded?: boolean;
+  user?: { sub?: string; email?: string };
+}
+
+export type AuthIssue = "transient" | "expired" | "config";
+
+interface SessionResponse {
+  authenticated: boolean;
+  error?: string;
+  user?: {
+    sub?: string;
+    id?: string;
+    email?: string | null;
+  };
+}
 
 interface AuthContextValue {
-  autional: Autional;
-  user: User | null;
+  user: AuthUser | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  /** transient：网络/服务不可用；expired/revoked：需要重新登录；config：客户端配置问题 */
-  authIssue: TokenIssue | null;
+  authIssue: AuthIssue | null;
   retryAuth: () => Promise<void>;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string) => Promise<void>;
+  refreshSession: () => Promise<AuthUser | null>;
+  sendEmailCode: (email: string) => Promise<void>;
+  loginWithEmailCode: (email: string, code: string) => Promise<AuthUser>;
+  startQr: () => Promise<QrSession>;
+  pollQr: (token: string) => Promise<QrStatus>;
+  cancelQr: (token: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const ERROR_TEXT: Record<string, string> = {
+  email_required: "请输入邮箱地址。",
+  invalid_input: "请输入 6 位验证码。",
+  send_failed: "验证码发送失败，请稍后重试。",
+  login_failed: "验证码不正确或已过期，请重新获取。",
+  mfa_required: "该账号需要额外验证，请先在 Autional 账户中心完成。",
+  qr_initiate_failed: "二维码生成失败，请稍后重试。",
+  qr_status_failed: "二维码状态读取失败，请稍后重试。",
+  embed_not_configured: "登录服务尚未配置完成。",
+};
+
+function errorFrom(body: unknown, fallback: string): Error {
+  const code =
+    body && typeof body === "object" && "error" in body
+      ? String((body as { error?: unknown }).error ?? "")
+      : "";
+  return new Error(ERROR_TEXT[code] ?? fallback);
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  fallback = "操作失败，请稍后重试。",
+): Promise<T> {
+  const res = await fetch(path, {
+    ...init,
+    cache: "no-store",
+    credentials: "same-origin",
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  const data = (await res.json().catch(() => null)) as unknown;
+  if (!res.ok) throw errorFrom(data, fallback);
+  return data as T;
+}
+
+function toUser(body: SessionResponse): AuthUser | null {
+  if (!body.authenticated || !body.user) return null;
+  const id = body.user.sub ?? body.user.id;
+  if (typeof id !== "string" || !id) return null;
+  return {
+    id,
+    email: typeof body.user.email === "string" ? body.user.email : undefined,
+  };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const autional = useMemo(() => {
-    const instance = new Autional({
-      appId: autionalConfig.appId,
-      issuer: autionalConfig.issuer,
-      apiUrl: autionalConfig.apiUrl,
-      tenantId: autionalConfig.tenantId,
-      platform: browserPlatform,
-      storagePrefix: autionalConfig.storagePrefix,
-      syncTabs: autionalConfig.syncTabs,
-    });
-    installTokenSession(instance);
-    return instance;
-  }, []);
-
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [authIssue, setAuthIssue] = useState<TokenIssue | null>(null);
+  const [authIssue, setAuthIssue] = useState<AuthIssue | null>(null);
+  const alive = useRef(true);
 
-  const boot = useCallback(
-    async (alive: () => boolean) => {
-      const ensured = await ensureToken(autional);
-      const issue: TokenIssue | null = ensured.ok ? null : ensured.issue;
-
-      try {
-        await autional.initialize();
-      } catch {
-        /* initialize 内部已兜底 */
-      }
-
-      if (!alive()) return;
-
-      const decision = decideBoot({
-        authenticated: autional.isAuthenticated(),
-        issue,
-        hasSnapshot: readSession() !== null,
-      });
-
-      if (decision.kind === "authenticated") {
-        writeSession(autional.user);
-        setUser(autional.user);
-        setAuthIssue(null);
-        setIsLoading(false);
-        return;
-      }
-
-      if (decision.kind === "keep-optimistic") {
-        // 断网/服务异常：保留本地快照渲染的界面，让用户继续离线编辑，
-        // 而不是把一次网络抖动当成「登录失效」踢回登录页。
-        setAuthIssue(decision.issue);
-        setIsLoading(false);
-        return;
-      }
-
+  const apply = useCallback((next: AuthUser | null) => {
+    if (next) {
+      writeSession(next);
+      setUser(next);
+      setAuthIssue(null);
+    } else {
       clearSession();
       setUser(null);
-      setAuthIssue(decision.issue);
-      setIsLoading(false);
-    },
-    [autional],
-  );
+    }
+    setIsLoading(false);
+  }, []);
 
-  useEffect(() => {
-    let alive = true;
-    const isAlive = () => alive;
+  const refreshSession = useCallback(async (): Promise<AuthUser | null> => {
+    const body = await request<SessionResponse>(
+      "/api/auth/session",
+      undefined,
+      "无法读取登录状态。",
+    );
+    const next = toUser(body);
+    if (alive.current) apply(next);
+    return next;
+  }, [apply]);
 
-    // 首屏乐观恢复：本地有会话快照就先当已登录渲染工作区，
-    // 真正的令牌校验放到后台进行——用户看到的等待从「认证 RTT」变成 0。
+  const boot = useCallback(async () => {
     const snapshot = readSession();
     if (snapshot) {
       setUser({ id: snapshot.id, email: snapshot.email });
       setIsLoading(false);
     }
-
-    const sync = () => {
-      if (!alive) return;
-      setUser(autional.user);
-      if (autional.isAuthenticated()) {
-        writeSession(autional.user);
-        setAuthIssue(null);
-      }
-    };
-
-    const offUser = autional.on("USER_CHANGED", sync);
-    const offToken = autional.on("TOKEN_CHANGED", sync);
-    const offOut = autional.on("LOGGED_OUT", () => {
-      if (!alive) return;
+    try {
+      const next = await refreshSession();
+      if (next) return;
+      if (!alive.current) return;
       clearSession();
       setUser(null);
       setAuthIssue("expired");
-    });
-    const offNone = autional.on("NOT_AUTHENTICATED", () => {
-      if (!alive) return;
-      // 没有快照 = 确实没有会话，直接清；有快照则交给 boot / 令牌请求去裁决，
-      // 避免离线启动时把用户误踢回登录页。
-      if (!readSession()) setUser(null);
-      setAuthIssue("expired");
-    });
+      setIsLoading(false);
+    } catch {
+      if (!alive.current) return;
+      // 网络/服务异常：保留本地快照继续离线编辑，不当作登出。
+      setAuthIssue("transient");
+      setIsLoading(false);
+    }
+  }, [refreshSession]);
 
-    void boot(isAlive);
-
+  useEffect(() => {
+    alive.current = true;
+    void boot();
     return () => {
-      alive = false;
-      offUser();
-      offToken();
-      offOut();
-      offNone();
+      alive.current = false;
     };
-  }, [autional, boot]);
+  }, [boot]);
 
   const retryAuth = useCallback(async () => {
     setIsLoading(true);
-    // 重试时若还有快照，先恢复界面再校验，避免整页回到转圈
-    const snapshot = readSession();
-    if (snapshot) {
-      setUser({ id: snapshot.id, email: snapshot.email });
-      setIsLoading(false);
-    }
-    await boot(() => true);
+    await boot();
   }, [boot]);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const result = await autional.login({
-        email,
-        password,
-        tenantId: AUTIONAL_TENANT_ID || undefined,
-      });
-      writeSession(result.user);
-      setUser(result.user);
-      setAuthIssue(null);
+  const sendEmailCode = useCallback(async (email: string) => {
+    await request<{ ok: true }>(
+      "/api/auth/embed/email/send",
+      { method: "POST", body: JSON.stringify({ email }) },
+      "验证码发送失败，请稍后重试。",
+    );
+  }, []);
+
+  const loginWithEmailCode = useCallback(
+    async (email: string, code: string): Promise<AuthUser> => {
+      await request(
+        "/api/auth/embed/email/login",
+        { method: "POST", body: JSON.stringify({ email, code }) },
+        "登录失败，请重新获取验证码。",
+      );
+      const next = await refreshSession();
+      if (!next) throw new Error("登录状态未建立，请重试。");
+      return next;
     },
-    [autional],
+    [refreshSession],
   );
 
-  const register = useCallback(
-    async (email: string, password: string) => {
-      // SDK 0.4.1 的 register() 发送 tenantId；identity 服务要求 tenant_id。
-      // 这里按同一套密码传输策略自行构造请求，随后走标准登录。
-      const cfg = await autional.fetchAuthConfig(AUTIONAL_TENANT_ID);
-      const policy = (cfg.passwordPolicy ?? {}) as {
-        mode?: string;
-        tenantId?: string;
-        publicKey?: string;
-      };
-      const processed = await processPasswordForTransmission(password, {
-        mode: (policy.mode as "plain" | "hash" | "symmetric" | "asymmetric") ?? "plain",
-        tenantId: policy.tenantId ?? AUTIONAL_TENANT_ID,
-        requireUpper: false,
-        minLength: 0,
-        publicKey: policy.publicKey ?? "",
-      });
-      await autional.api.post("/identity/api/v1/auth/register", {
-        email,
-        password: processed.password,
-        password_transmission: processed.passwordTransmission,
-        tenant_id: AUTIONAL_TENANT_ID,
-      });
-      await login(email, password);
-    },
-    [autional, login],
-  );
+  const startQr = useCallback(async (): Promise<QrSession> => {
+    const data = await request<{
+      sessionToken?: string;
+      numberMatching?: string;
+      expiresIn?: number;
+    }>(
+      "/api/auth/embed/qr/initiate",
+      { method: "POST", body: "{}" },
+      "二维码生成失败，请稍后重试。",
+    );
+    if (!data.sessionToken) throw new Error("二维码数据不完整，请重试。");
+    return {
+      sessionToken: data.sessionToken,
+      numberMatching: data.numberMatching ?? "",
+      expiresIn: data.expiresIn ?? 300,
+    };
+  }, []);
+
+  const pollQr = useCallback(async (token: string): Promise<QrStatus> => {
+    const data = await request<QrStatus>(
+      `/api/auth/embed/qr/status?token=${encodeURIComponent(token)}`,
+      { method: "GET" },
+      "二维码状态读取失败。",
+    );
+    return data;
+  }, []);
+
+  const cancelQr = useCallback(async (token: string): Promise<void> => {
+    await request(
+      "/api/auth/embed/qr/revoke",
+      { method: "POST", body: JSON.stringify({ token }) },
+      "取消失败。",
+    ).catch(() => undefined);
+  }, []);
 
   const logout = useCallback(async () => {
     try {
-      await autional.logout();
+      await request("/api/auth/logout", { method: "POST", body: "{}" });
     } finally {
       clearSession();
       setUser(null);
       setAuthIssue("expired");
+      setIsLoading(false);
     }
-  }, [autional]);
+  }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      autional,
       user,
       isLoading,
       isAuthenticated: !!user,
       authIssue,
       retryAuth,
-      login,
-      register,
+      refreshSession,
+      sendEmailCode,
+      loginWithEmailCode,
+      startQr,
+      pollQr,
+      cancelQr,
       logout,
     }),
-    [autional, user, isLoading, authIssue, retryAuth, login, register, logout],
+    [
+      user,
+      isLoading,
+      authIssue,
+      retryAuth,
+      refreshSession,
+      sendEmailCode,
+      loginWithEmailCode,
+      startQr,
+      pollQr,
+      cancelQr,
+      logout,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -233,4 +274,11 @@ export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used inside <AuthProvider>");
   return ctx;
+}
+
+/** Autional 注册入口（租户 slug）。注册在 Autional 完成，登录回本站。 */
+export function registerUrl(): string {
+  const slug =
+    process.env.NEXT_PUBLIC_AUTIONAL_TENANT_SLUG ?? "marktext-web";
+  return `https://auth.autional.cn/${encodeURIComponent(slug)}/register`;
 }

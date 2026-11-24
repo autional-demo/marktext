@@ -141,7 +141,10 @@ function installFakeNavigatorLock(): void {
 }
 
 function makeFakeAutional(initialAccess: string, refreshToken = "rt-1") {
-  let store = { accessToken: initialAccess, refreshToken };
+  let store: { accessToken: string | null; refreshToken: string | null } = {
+    accessToken: initialAccess,
+    refreshToken,
+  };
 
   const storage = {
     getItem(): string {

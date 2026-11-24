@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { decodeJwt, type JWTPayload } from "jose";
+import { getAiAuth } from "./ai-auth";
 
 /**
  * 服务端身份校验。
@@ -68,7 +69,19 @@ function remember(token: string, caller: Caller, expSeconds: number): void {
 export async function requireCaller(req: Request): Promise<Caller> {
   const header = req.headers.get("authorization") ?? "";
   const match = /^Bearer\s+(.+)$/i.exec(header.trim());
-  if (!match) throw new HttpError(401, "缺少 Bearer token");
+
+  // Embedded login: the browser holds only the encrypted HttpOnly session
+  // cookie. The SDK verifies the seal, expiry and consent status.
+  if (!match) {
+    let session;
+    try {
+      session = await getAiAuth().getUser(req);
+    } catch {
+      throw new HttpError(503, "认证服务暂时不可用");
+    }
+    if (!session) throw new HttpError(401, "会话已失效，请重新登录");
+    return { userId: session.sub, tenantId: session.tenantId };
+  }
 
   const token = match[1];
 

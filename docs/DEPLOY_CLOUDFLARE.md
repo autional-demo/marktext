@@ -114,6 +114,8 @@ Worker 需要两个 Secret，缺一个云同步就 500：
 | `DATABASE_URL` | 本机 `.env.local`（与 Vercel 生产同一个 Neon 库） | ✅ 2026-11-23 已写入（`wrangler secret bulk`，值未落日志） |
 | `CONTENT_ENCRYPTION_KEY` | 同上 | ✅ 已写入（44 字符 base64 = 32 字节） |
 | `CONTENT_ENCRYPTION_KEY_KID` | 同上，`k1` | ✅ 已写入 |
+| `AI_AUTH_SESSION_SECRET` | 内嵌登录会话加密（≥32 字符，随机） | ✅ 2026-11-24 已写入 |
+| `AI_BFF_API_KEY` | 平台内部 consent 端点（与 BFF 同键） | ✅ 2026-11-24 已写入 |
 
 > Vercel 的 `DATABASE_URL` 是 `sensitive` 类型，API 即使 `decrypt=true` 也返回空；
 > `CONTENT_ENCRYPTION_KEY` 是 `encrypted` 且经 API 返回的是密文（1100 字符），不是明文。

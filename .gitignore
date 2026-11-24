@@ -7,6 +7,7 @@ out/
 *.log
 next-env.d.ts
 .tsbuildinfo
+*.tsbuildinfo
 
 .vercel
 .tmp/
@@ -19,6 +20,9 @@ butler/
 # 本地构建产物（交叉编译的服务二进制/中间 dist）
 dist/
 build-*/
+# 例外：vendored SDK 构建（npm 发布前的本地依赖）
+!vendor/ai-auth/dist/
+!vendor/ai-auth/dist/**
 
 # Cloudflare Workers（OpenNext 适配器）
 .open-next/
