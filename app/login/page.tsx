@@ -266,12 +266,6 @@ export default function LoginPage() {
                 <p className="qr-hint">
                   用手机上的 Autional 认证器扫码，核对 6 位数字后确认。
                 </p>
-                <p className="qr-install">
-                  第一次使用？{" "}
-                  <a href={AUTHENTICATOR_HOME} target="_blank" rel="noreferrer">
-                    安装 / 打开 Autional 认证器
-                  </a>
-                </p>
                 <button
                   type="button"
                   className="sso-button"
@@ -404,6 +398,20 @@ export default function LoginPage() {
           <a href={forgotPasswordUrl()}>忘记密码</a>
           <span aria-hidden="true">·</span>
           <a href={ACCOUNT_CENTER}>账号中心</a>
+        </p>
+        <p className="login-foot login-links">
+          没有认证器？{" "}
+          <a href={AUTHENTICATOR_HOME} target="_blank" rel="noreferrer">
+            安装 Autional 认证器
+          </a>
+          <span aria-hidden="true">·</span>
+          <button
+            type="button"
+            className="link-button"
+            onClick={() => setTab("email")}
+          >
+            改用邮箱验证码
+          </button>
         </p>
         <p className="login-foot">
           登录即表示同意 Autional 读取你的基本身份与邮箱地址；可随时在{" "}
